@@ -1,5 +1,6 @@
 package at.fhtw.documentmanagementsystem.business.dto;
 
+import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import jakarta.validation.constraints.NotBlank;
 import jakarta.validation.constraints.PositiveOrZero;
 import jakarta.validation.constraints.Size;
@@ -32,4 +33,6 @@ public class DocumentDto {
     private Long fileSize;
 
     private Instant uploadedAt;
+
+    private DocumentStatus status;
 }
