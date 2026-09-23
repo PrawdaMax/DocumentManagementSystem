@@ -16,6 +16,7 @@ public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> 
                 .contentType(entity.getContentType())
                 .fileSize(entity.getFileSize())
                 .uploadedAt(entity.getUploadedAt())
+                .status(entity.getStatus())
                 .build();
     }
 

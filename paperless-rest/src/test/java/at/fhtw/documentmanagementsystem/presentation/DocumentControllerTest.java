@@ -2,7 +2,10 @@ package at.fhtw.documentmanagementsystem.presentation;
 
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
+import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -13,11 +16,13 @@ import org.springframework.test.web.servlet.MockMvc;
 import java.util.List;
 
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
@@ -83,6 +88,34 @@ class DocumentControllerTest {
                 .andExpect(status().isNoContent());
 
         verify(documentService).delete(1L);
+    }
+
+    @Test
+    void changeStatus_allowedChange_returnsDocumentWithNewStatus() throws Exception {
+        DocumentDto updated = DocumentDto.builder().id(1L).title("Invoice").status(DocumentStatus.IN_REVIEW).build();
+        when(documentService.changeStatus(eq(1L), any(StatusChangeDto.class))).thenReturn(updated);
+
+        mockMvc.perform(patch("/api/documents/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status": "IN_REVIEW", "comment": "Review started"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.status").value("IN_REVIEW"));
+    }
+
+    @Test
+    void changeStatus_notAllowedChange_returns409() throws Exception {
+        when(documentService.changeStatus(eq(1L), any(StatusChangeDto.class)))
+                .thenThrow(new InvalidStatusChangeException("Status change from RECEIVED to DONE is not allowed"));
+
+        mockMvc.perform(patch("/api/documents/1/status")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"status": "DONE"}
+                                """))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Status change from RECEIVED to DONE is not allowed"));
     }
 
     private static DocumentDto document(Long id, String title) {

@@ -2,12 +2,15 @@ package at.fhtw.documentmanagementsystem.presentation;
 
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
+import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
+import org.springframework.web.bind.annotation.PatchMapping;
 import org.springframework.web.bind.annotation.PathVariable;
 import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
@@ -51,5 +54,15 @@ public class DocumentController {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     public void delete(@PathVariable Long id) {
         documentService.delete(id);
+    }
+
+    @PatchMapping("/{id}/status")
+    public DocumentDto changeStatus(@PathVariable Long id, @Valid @RequestBody StatusChangeDto statusChangeDto) {
+        return documentService.changeStatus(id, statusChangeDto);
+    }
+
+    @GetMapping("/{id}/history")
+    public List<DocumentHistoryDto> getHistory(@PathVariable Long id) {
+        return documentService.getHistory(id);
     }
 }
