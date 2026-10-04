@@ -35,7 +35,7 @@ class DocumentServiceImplTest {
     @Mock
     private DocumentRepository documentRepository;
 
-    private at.fhtw.documentmanagementsystem.business.DocumentServiceImpl documentService;
+    private DocumentServiceImpl documentService;
 
     @BeforeEach
     void setUp() {
