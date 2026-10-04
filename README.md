@@ -11,7 +11,7 @@ als zusätzlicher Use Case sowie eine Web-UI, die über nginx ausgeliefert wird.
 | Pfad                  | Beschreibung                                            |
 |-----------------------|---------------------------------------------------------|
 | `paperless-rest/`     | REST-Server (Java 25, Spring Boot 4, JPA)               |
-| `paperless-frontend/` | Web-UI (TypeScript, Vite), ausgeliefert über nginx      |
+| `paperless-frontend/` | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx |
 | `docker-compose.yml`  | Startet alle Services (Web-UI, REST-Server, PostgreSQL) |
 | `.env.example`        | Vorlage für die Zugangsdaten in der `.env`              |
 
@@ -24,6 +24,17 @@ Der REST-Server ist in drei Schichten aufgebaut:
 | Presentation   | `presentation` | REST-Controller, Fehlerbehandlung               |
 | Business       | `business`     | Services, DTOs, Mapper, fachliche Exceptions    |
 | Persistence    | `persistence`  | JPA-Entities, Repositories                      |
+
+Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
+
+| Datei         | Inhalt                                                             |
+|---------------|--------------------------------------------------------------------|
+| `App.tsx`     | Hält den Zustand und ruft den REST-Server auf                      |
+| `components/` | Komponenten, die nur anzeigen (Tabelle, Formular, Details, Status) |
+| `api.ts`      | Alle HTTP-Aufrufe an `/api/documents`                              |
+| `types.ts`    | Typen passend zu den DTOs des REST-Servers                         |
+| `status.ts`   | Bezeichnung, Farbe und erlaubte Wechsel je Status                  |
+| `format.ts`   | Anzeige von Dateigröße und Datum                                   |
 
 ## Voraussetzungen
 
@@ -98,6 +109,14 @@ cd paperless-rest
 ```
 
 Die Unit-Tests benötigen keine Datenbank, das Repository wird mit Mockito gemockt.
+
+Web-UI prüfen und bauen:
+
+```bash
+cd paperless-frontend
+npm run lint    # Linter (oxlint)
+npm run build   # Typprüfung und Build nach dist/
+```
 
 ## REST-API
 
