@@ -18,7 +18,7 @@ services:
   rest:
     build: ./paperless-rest
     ports:
-      - "8080:8080"
+      - "8081:8081"
     environment:
       SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/paperless
       SPRING_DATASOURCE_USERNAME: paperless
@@ -26,6 +26,13 @@ services:
     depends_on:
       db:
         condition: service_healthy
+
+  frontend:
+    build: ./paperless-frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - rest
 
 volumes:
   pgdata:
