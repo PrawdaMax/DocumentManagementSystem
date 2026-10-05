@@ -25,7 +25,8 @@ export function StatusChange({ status, onChange }: StatusChangeProps) {
             <textarea
                 value={comment}
                 onChange={e => setComment(e.target.value)}
-                placeholder="Comment (optional)"
+                placeholder="Comment (optional, max. 500 characters)"
+                maxLength={500}
                 rows={2}
                 className="w-full rounded-md border border-slate-300 p-2 text-xs"
             />

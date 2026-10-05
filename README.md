@@ -29,8 +29,9 @@ Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
 
 | Datei         | Inhalt                                                             |
 |---------------|--------------------------------------------------------------------|
-| `App.tsx`     | Hält den Zustand und ruft den REST-Server auf                      |
-| `components/` | Komponenten, die nur anzeigen (Tabelle, Formular, Details, Status) |
+| `App.tsx`     | Kopfzeile und Routen                                               |
+| `pages/`      | Dashboard und Detailseite: laden Daten und führen Aktionen aus     |
+| `components/` | Wiederverwendbare Teile (Formular, Statuswechsel, Badge, Fehler)   |
 | `api.ts`      | Alle HTTP-Aufrufe an `/api/documents`                              |
 | `types.ts`    | Typen passend zu den DTOs des REST-Servers                         |
 | `status.ts`   | Bezeichnung, Farbe und erlaubte Wechsel je Status                  |
@@ -68,7 +69,7 @@ muss das Volume mit `docker compose down -v` gelöscht werden.
 docker compose up --build
 ```
 
-- Web-UI: http://localhost
+- Web-UI: http://localhost (Dashboard) und http://localhost/documents/{id} (Detailseite)
 - REST-Server: http://localhost:8081
 - PostgreSQL: `localhost:5432` (Zugangsdaten aus der `.env`)
 
@@ -131,6 +132,8 @@ npm run build   # Typprüfung und Build nach dist/
 | GET     | `/api/documents/{id}/history` | Statusverlauf (neuester Eintrag zuerst)        | 200, 404             |
 
 Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
+Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder, z. B. `title: must not be blank`.
+Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
 
 ### Dokumentstatus
 

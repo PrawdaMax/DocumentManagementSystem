@@ -1,9 +1,10 @@
 import { useState, type FormEvent } from 'react';
 import type { DocumentDto, DocumentInput } from '../types';
+import { Alert } from './Alert';
 
 interface DocumentFormProps {
     doc: DocumentDto | null;
-    onSave: (input: DocumentInput) => Promise<void>;
+    onSave: (input: DocumentInput) => Promise<void>; // darf einen Fehler werfen, das Formular zeigt ihn dann an
     onCancel: () => void;
 }
 
@@ -35,24 +36,24 @@ export function DocumentForm({ doc, onSave, onCancel }: DocumentFormProps) {
         <div className="fixed inset-0 flex items-center justify-center bg-slate-800/50 p-4">
             <form onSubmit={handleSubmit} className="w-full max-w-md space-y-3 rounded-lg bg-white p-6 shadow-lg">
                 <h3 className="text-lg font-bold">{doc ? 'Edit Metadata' : 'Create Document'}</h3>
+                <Alert text={error} />
 
-                {error && <p className="rounded-md bg-rose-50 p-3 text-sm text-rose-800">{error}</p>}
-
+                {/* Der Browser prüft die Eingaben (required, maxLength, min, step) */}
                 <label className={LABEL_STYLE}>
                     Title *
-                    <input value={title} onChange={e => setTitle(e.target.value)} required className={INPUT_STYLE} />
+                    <input value={title} onChange={e => setTitle(e.target.value)} required maxLength={255} className={INPUT_STYLE} />
                 </label>
                 <label className={LABEL_STYLE}>
-                    File Name
-                    <input value={fileName} onChange={e => setFileName(e.target.value)} className={INPUT_STYLE} />
+                    File Name *
+                    <input value={fileName} onChange={e => setFileName(e.target.value)} required maxLength={255} className={INPUT_STYLE} />
                 </label>
                 <label className={LABEL_STYLE}>
-                    Content Type
-                    <input value={contentType} onChange={e => setContentType(e.target.value)} className={INPUT_STYLE} />
+                    Content Type *
+                    <input value={contentType} onChange={e => setContentType(e.target.value)} required maxLength={255} className={INPUT_STYLE} />
                 </label>
                 <label className={LABEL_STYLE}>
-                    Size (Bytes)
-                    <input type="number" min={0} value={fileSize} onChange={e => setFileSize(e.target.value)} className={INPUT_STYLE} />
+                    Size (Bytes) *
+                    <input type="number" required min={0} step={1} value={fileSize} onChange={e => setFileSize(e.target.value)} className={INPUT_STYLE} />
                 </label>
 
                 <div className="flex justify-end gap-2 pt-2 text-sm">

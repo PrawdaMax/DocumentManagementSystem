@@ -23,6 +23,10 @@ export function getDocuments() {
     return request<DocumentDto[]>('');
 }
 
+export function getDocument(id: number) {
+    return request<DocumentDto>(`/${id}`);
+}
+
 export function createDocument(input: DocumentInput) {
     return request<DocumentDto>('', 'POST', input);
 }
