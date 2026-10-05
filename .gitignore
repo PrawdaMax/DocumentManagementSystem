@@ -4,6 +4,10 @@ target/
 !**/src/main/**/target/
 !**/src/test/**/target/
 
+### Node / Vite ###
+node_modules/
+dist/
+
 ### STS ###
 .apt_generated
 .classpath
@@ -22,7 +26,6 @@ target/
 ### NetBeans ###
 **/nbproject/private/
 nbbuild/
-dist/
 nbdist/
 .nb-gradle/
 build/
@@ -38,4 +41,6 @@ Thumbs.db
 
 ### Environment / Logs ###
 .env
+.env.*
+!.env.example
 *.log
