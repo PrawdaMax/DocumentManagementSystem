@@ -12,15 +12,33 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    hostname: rabbitmq
+    env_file: .env
+    ports:
+      - "5672:5672"     # AMQP
+      - "15672:15672"   # Management-UI
+    volumes:
+      - rabbitmq-data:/var/lib/rabbitmq
+    healthcheck:
+      test: ["CMD", "rabbitmq-diagnostics", "-q", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   rest:
     build: ./paperless-rest
     env_file: .env
     environment:
       DB_HOST: db
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "8081:8081"
     depends_on:
       db:
+        condition: service_healthy
+      rabbitmq:
         condition: service_healthy
 
   frontend:
@@ -32,3 +50,4 @@ services:
 
 volumes:
   pgdata:
+  rabbitmq-data:

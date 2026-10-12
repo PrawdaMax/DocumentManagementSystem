@@ -8,12 +8,12 @@ als zusätzlicher Use Case sowie eine Web-UI, die über nginx ausgeliefert wird.
 
 ## Projektstruktur
 
-| Pfad                  | Beschreibung                                            |
-|-----------------------|---------------------------------------------------------|
-| `paperless-rest/`     | REST-Server (Java 25, Spring Boot 4, JPA)               |
-| `paperless-frontend/` | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx |
-| `docker-compose.yml`  | Startet alle Services (Web-UI, REST-Server, PostgreSQL) |
-| `.env.example`        | Vorlage für die Zugangsdaten in der `.env`              |
+| Pfad                  | Beschreibung                                                      |
+|-----------------------|-------------------------------------------------------------------|
+| `paperless-rest/`     | REST-Server (Java 25, Spring Boot 4, JPA)                         |
+| `paperless-frontend/` | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx           |
+| `docker-compose.yml`  | Startet alle Services (Web-UI, REST-Server, PostgreSQL, RabbitMQ) |
+| `.env.example`        | Vorlage für die Zugangsdaten in der `.env`                        |
 
 Im Container liefert nginx die gebaute Web-UI aus und leitet Anfragen an `/api` an den REST-Server weiter.
 
@@ -51,17 +51,19 @@ Die `.env` wird nicht committed, als Vorlage dient `.env.example`:
 cp .env.example .env
 ```
 
-| Variable            | Beschreibung              |
-|---------------------|---------------------------|
-| `POSTGRES_DB`       | Name der Datenbank        |
-| `POSTGRES_USER`     | Datenbank-Benutzer        |
-| `POSTGRES_PASSWORD` | Passwort des Benutzers    |
+| Variable                | Beschreibung                      |
+|-------------------------|-----------------------------------|
+| `POSTGRES_DB`           | Name der Datenbank                |
+| `POSTGRES_USER`         | Datenbank-Benutzer                |
+| `POSTGRES_PASSWORD`     | Passwort des Datenbank-Benutzers  |
+| `RABBITMQ_DEFAULT_USER` | RabbitMQ-Benutzer                 |
+| `RABBITMQ_DEFAULT_PASS` | Passwort des RabbitMQ-Benutzers   |
 
-`docker compose` übergibt die Werte an die Datenbank und den REST-Server.
+`docker compose` übergibt die Werte an die Datenbank, RabbitMQ und den REST-Server.
 Der lokal gestartete REST-Server liest dieselbe `.env` (`spring.config.import` in `application.properties`).
 
-Hinweis: PostgreSQL übernimmt die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
-muss das Volume mit `docker compose down -v` gelöscht werden.
+Hinweis: PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
+müssen die Volumes mit `docker compose down -v` gelöscht werden.
 
 ## Mit Docker starten
 
@@ -72,8 +74,10 @@ docker compose up --build
 - Web-UI: http://localhost (Dashboard) und http://localhost/documents/{id} (Detailseite)
 - REST-Server: http://localhost:8081
 - PostgreSQL: `localhost:5432` (Zugangsdaten aus der `.env`)
+- RabbitMQ: `localhost:5672` (AMQP) und die Management-UI unter http://localhost:15672
+  (Login mit `RABBITMQ_DEFAULT_USER` und `RABBITMQ_DEFAULT_PASS` aus der `.env`)
 
-Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Datenbankdaten gelöscht).
+Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Daten von PostgreSQL und RabbitMQ gelöscht).
 
 ## Lokale Entwicklung
 
