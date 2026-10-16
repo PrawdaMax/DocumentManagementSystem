@@ -48,6 +48,16 @@ services:
     depends_on:
       - rest
 
+  ocr-worker:
+    build: ./paperless-ocr-worker
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
 volumes:
   pgdata:
   rabbitmq-data:
