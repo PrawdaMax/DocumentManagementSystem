@@ -8,6 +8,12 @@ target/
 node_modules/
 dist/
 
+### Python ###
+.venv/
+__pycache__/
+.pytest_cache/
+.ruff_cache/
+
 ### STS ###
 .apt_generated
 .classpath
