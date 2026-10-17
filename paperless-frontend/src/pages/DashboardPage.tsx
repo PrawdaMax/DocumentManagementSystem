@@ -5,7 +5,7 @@ import { Alert } from '../components/Alert';
 import { DocumentForm } from '../components/DocumentForm';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatBytes, formatDate } from '../format';
-import type { DocumentDto, DocumentInput } from '../types';
+import type { DocumentDto } from '../types';
 
 export function DashboardPage() {
     const navigate = useNavigate();
@@ -25,8 +25,8 @@ export function DashboardPage() {
     const visibleDocuments = documents.filter(doc =>
         doc.title.toLowerCase().includes(query) || doc.fileName?.toLowerCase().includes(query));
 
-    async function createDocument(input: DocumentInput) {
-        const created = await api.createDocument(input);
+    async function uploadDocument(title: string, file: File) {
+        const created = await api.uploadDocument(title, file);
         navigate(`/documents/${created.id}`);
     }
 
@@ -83,7 +83,7 @@ export function DashboardPage() {
                 </table>
             )}
 
-            {formOpen && <DocumentForm doc={null} onSave={createDocument} onCancel={() => setFormOpen(false)} />}
+            {formOpen && <DocumentForm doc={null} onUpload={uploadDocument} onCancel={() => setFormOpen(false)} />}
         </section>
     );
 }

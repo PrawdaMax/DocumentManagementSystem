@@ -10,11 +10,8 @@ export interface DocumentDto {
     status: DocumentStatus;
 }
 
-export interface DocumentInput {
+export interface DocumentUpdateDto {
     title: string;
-    fileName: string | null;
-    contentType: string | null;
-    fileSize: number | null;
 }
 
 export interface DocumentHistoryDto {
