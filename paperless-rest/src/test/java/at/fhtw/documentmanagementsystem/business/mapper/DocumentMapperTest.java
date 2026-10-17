@@ -1,9 +1,11 @@
 package at.fhtw.documentmanagementsystem.business.mapper;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import org.junit.jupiter.api.Test;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Instant;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -35,23 +37,21 @@ class DocumentMapperTest {
     }
 
     @Test
-    void mapToEntity_ignoresServerManagedFields() {
-        DocumentDto dto = DocumentDto.builder()
-                .id(99L)
+    void mapToEntity_fromUploadDto_setsCorrectFields() {
+        byte[] content = "%PDF-1.4 test content".getBytes(StandardCharsets.UTF_8);
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title("Invoice")
                 .fileName("invoice.pdf")
-                .contentType("application/pdf")
-                .fileSize(1024L)
-                .uploadedAt(Instant.now())
+                .content(content)
                 .build();
 
-        DocumentEntity entity = documentMapper.mapToEntity(dto);
+        DocumentEntity entity = documentMapper.mapToEntity(uploadDto);
 
         assertThat(entity.getId()).isNull();
         assertThat(entity.getUploadedAt()).isNull();
         assertThat(entity.getTitle()).isEqualTo("Invoice");
         assertThat(entity.getFileName()).isEqualTo("invoice.pdf");
         assertThat(entity.getContentType()).isEqualTo("application/pdf");
-        assertThat(entity.getFileSize()).isEqualTo(1024L);
+        assertThat(entity.getFileSize()).isEqualTo((long) content.length);
     }
 }

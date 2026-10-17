@@ -2,11 +2,15 @@ package at.fhtw.documentmanagementsystem.business;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
+import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
@@ -17,6 +21,7 @@ import org.mockito.ArgumentCaptor;
 import org.mockito.Mock;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 import java.util.Optional;
 
@@ -39,7 +44,12 @@ class DocumentServiceImplTest {
 
     @BeforeEach
     void setUp() {
-        documentService = new DocumentServiceImpl(documentRepository, new DocumentMapper(), new DocumentHistoryMapper());
+        documentService = new DocumentServiceImpl(
+                documentRepository,
+                new DocumentMapper(),
+                new DocumentHistoryMapper(),
+                new DocumentUploadValidator()
+        );
     }
 
     @Test
@@ -62,35 +72,53 @@ class DocumentServiceImplTest {
     }
 
     @Test
-    void create_savesNewDocumentWithStatusReceived() {
-        DocumentDto input = DocumentDto.builder().id(99L).title("Invoice").fileName("invoice.pdf").build();
+    void upload_validPdf_savesNewDocumentWithStatusReceived() {
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
+                .title("Invoice")
+                .fileName("invoice.pdf")
+                .content("%PDF-1.4 content".getBytes(StandardCharsets.UTF_8))
+                .build();
+
         when(documentRepository.save(any(DocumentEntity.class))).thenReturn(document(1L, "Invoice"));
 
-        DocumentDto result = documentService.create(input);
+        DocumentDto result = documentService.upload(uploadDto);
 
         ArgumentCaptor<DocumentEntity> captor = ArgumentCaptor.forClass(DocumentEntity.class);
         verify(documentRepository).save(captor.capture());
         DocumentEntity saved = captor.getValue();
+
         assertThat(saved.getId()).isNull();
         assertThat(saved.getTitle()).isEqualTo("Invoice");
         assertThat(saved.getFileName()).isEqualTo("invoice.pdf");
+        assertThat(saved.getContentType()).isEqualTo("application/pdf");
         assertThat(saved.getStatus()).isEqualTo(RECEIVED);
         assertThat(saved.getHistory()).extracting(DocumentHistoryEntity::getStatus).containsExactly(RECEIVED);
         assertThat(result.getId()).isEqualTo(1L);
     }
 
     @Test
-    void update_existingId_updatesFields() {
+    void upload_invalidFile_throwsInvalidDocumentException() {
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
+                .title("Invoice")
+                .fileName("invoice.txt")
+                .content("invalid".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        assertThatThrownBy(() -> documentService.upload(uploadDto))
+                .isInstanceOf(InvalidDocumentException.class);
+    }
+
+    @Test
+    void update_existingId_updatesTitle() {
         DocumentEntity existing = document(1L, "Old title");
-        DocumentDto input = DocumentDto.builder().title("New title").fileName("new.pdf").fileSize(2048L).build();
+        DocumentUpdateDto updateDto = DocumentUpdateDto.builder().title("New title").build();
+
         when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
         when(documentRepository.save(existing)).thenReturn(existing);
 
-        DocumentDto result = documentService.update(1L, input);
+        DocumentDto result = documentService.update(1L, updateDto);
 
         assertThat(result.getTitle()).isEqualTo("New title");
-        assertThat(result.getFileName()).isEqualTo("new.pdf");
-        assertThat(result.getFileSize()).isEqualTo(2048L);
     }
 
     @Test

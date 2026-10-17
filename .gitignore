@@ -41,6 +41,6 @@ Thumbs.db
 
 ### Environment / Logs ###
 .env
-.env.*
-!.env.example
+.env
+!.env
 *.log

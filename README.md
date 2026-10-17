@@ -13,7 +13,7 @@ als zusätzlicher Use Case sowie eine Web-UI, die über nginx ausgeliefert wird.
 | `paperless-rest/`     | REST-Server (Java 25, Spring Boot 4, JPA)               |
 | `paperless-frontend/` | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx |
 | `docker-compose.yml`  | Startet alle Services (Web-UI, REST-Server, PostgreSQL) |
-| `.env.example`        | Vorlage für die Zugangsdaten in der `.env`              |
+| `.env`        | Vorlage für die Zugangsdaten in der `.env`              |
 
 Im Container liefert nginx die gebaute Web-UI aus und leitet Anfragen an `/api` an den REST-Server weiter.
 
@@ -45,10 +45,10 @@ Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
 ## Konfiguration
 
 Zugangsdaten stehen nicht im Code, sondern in einer `.env`-Datei im Projekt-Root.
-Die `.env` wird nicht committed, als Vorlage dient `.env.example`:
+Die `.env` wird nicht committed, als Vorlage dient `.env`:
 
 ```bash
-cp .env.example .env
+cp .env .env
 ```
 
 | Variable            | Beschreibung              |
@@ -125,14 +125,14 @@ npm run build   # Typprüfung und Build nach dist/
 |---------|-------------------------------|------------------------------------------------|----------------------|
 | GET     | `/api/documents`              | Alle Dokumente                                 | 200                  |
 | GET     | `/api/documents/{id}`         | Ein Dokument                                   | 200, 404             |
-| POST    | `/api/documents`              | Dokument anlegen (Status wird `RECEIVED`)      | 201, 400             |
-| PUT     | `/api/documents/{id}`         | Metadaten ändern                               | 200, 400, 404        |
+| POST    | `/api/documents`              | PDF hochladen (Multipart, Status `RECEIVED`)   | 201, 400             |
+| PUT     | `/api/documents/{id}`         | Dokumenttitel ändern                           | 200, 400, 404        |
 | DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen                  | 204, 404             |
 | PATCH   | `/api/documents/{id}/status`  | Status ändern                                  | 200, 400, 404, 409   |
 | GET     | `/api/documents/{id}/history` | Statusverlauf (neuester Eintrag zuerst)        | 200, 404             |
 
 Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
-Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder, z. B. `title: must not be blank`.
+Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder oder Ursachen (z. B. fehlende PDF-Magic-Bytes).
 Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
 
 ### Dokumentstatus
@@ -151,10 +151,15 @@ Nicht erlaubte Änderungen werden mit `409 Conflict` abgelehnt.
 ### Beispiele
 
 ```bash
-# Dokument anlegen
+# PDF-Dokument hochladen (Multipart Form-Data)
 curl -X POST http://localhost:8081/api/documents \
+  -F "file=@/pfad/zur/rechnung.pdf" \
+  -F "title=Rechnung März"
+
+# Dokumenttitel ändern
+curl -X PUT http://localhost:8081/api/documents/1 \
   -H "Content-Type: application/json" \
-  -d '{"title": "Rechnung März", "fileName": "rechnung.pdf", "contentType": "application/pdf", "fileSize": 12345}'
+  -d '{"title": "Rechnung März (korrigiert)"}'
 
 # Status ändern
 curl -X PATCH http://localhost:8081/api/documents/1/status \

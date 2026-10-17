@@ -2,7 +2,10 @@ package at.fhtw.documentmanagementsystem.presentation;
 
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
@@ -10,21 +13,23 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.http.MediaType;
+import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.verify;
-import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
-import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -58,30 +63,66 @@ class DocumentControllerTest {
     }
 
     @Test
-    void create_validDocument_returns201WithLocation() throws Exception {
-        when(documentService.create(any(DocumentDto.class))).thenReturn(document(1L, "Invoice"));
+    void upload_validPdf_returns201WithLocation() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "invoice.pdf",
+                "application/pdf",
+                "%PDF-1.4 test".getBytes(StandardCharsets.UTF_8)
+        );
 
-        mockMvc.perform(post("/api/documents")
-                        .contentType(MediaType.APPLICATION_JSON)
-                        .content("""
-                                {"title": "Invoice", "fileName": "invoice.pdf", "fileSize": 1024}
-                                """))
+        when(documentService.upload(any(DocumentUploadDto.class))).thenReturn(document(1L, "Invoice"));
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .param("title", "Invoice"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/documents/1"))
                 .andExpect(jsonPath("$.id").value(1));
     }
 
     @Test
-    void create_blankTitle_returns400() throws Exception {
-        mockMvc.perform(post("/api/documents")
+    void upload_invalidDocument_returns400() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file",
+                "invoice.txt",
+                "text/plain",
+                "invalid".getBytes(StandardCharsets.UTF_8)
+        );
+
+        when(documentService.upload(any(DocumentUploadDto.class)))
+                .thenThrow(new InvalidDocumentException("File must have a .pdf extension"));
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .param("title", "Invoice"))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString(".pdf extension")));
+    }
+
+    @Test
+    void update_validTitle_returnsUpdatedDocument() throws Exception {
+        when(documentService.update(eq(1L), any(DocumentUpdateDto.class)))
+                .thenReturn(document(1L, "Updated Invoice"));
+
+        mockMvc.perform(put("/api/documents/1")
+                        .contentType(MediaType.APPLICATION_JSON)
+                        .content("""
+                                {"title": "Updated Invoice"}
+                                """))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$.title").value("Updated Invoice"));
+    }
+
+    @Test
+    void update_blankTitle_returns400() throws Exception {
+        mockMvc.perform(put("/api/documents/1")
                         .contentType(MediaType.APPLICATION_JSON)
                         .content("""
                                 {"title": ""}
                                 """))
                 .andExpect(status().isBadRequest())
                 .andExpect(jsonPath("$.detail").value(containsString("title")));
-
-        verifyNoInteractions(documentService);
     }
 
     @Test

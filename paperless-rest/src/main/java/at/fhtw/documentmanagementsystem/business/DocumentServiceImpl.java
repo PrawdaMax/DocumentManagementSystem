@@ -25,6 +25,19 @@ import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.RECEIVED;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.REJECTED;
 
+import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
+import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
+import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
+import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
+import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
+import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
+
+
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -40,6 +53,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentRepository documentRepository;
     private final DocumentMapper documentMapper;
     private final DocumentHistoryMapper documentHistoryMapper;
+    private final DocumentUploadValidator documentUploadValidator;
 
     @Override
     public List<DocumentDto> getAll() {
@@ -52,19 +66,17 @@ public class DocumentServiceImpl implements DocumentService {
     }
 
     @Override
-    public DocumentDto create(DocumentDto documentDto) {
-        DocumentEntity document = documentMapper.mapToEntity(documentDto);
-        recordStatus(document, RECEIVED, "Document created");
+    public DocumentDto upload(DocumentUploadDto uploadDto) {
+        documentUploadValidator.validate(uploadDto);
+        DocumentEntity document = documentMapper.mapToEntity(uploadDto);
+        recordStatus(document, RECEIVED, "Document uploaded");
         return documentMapper.mapToDto(documentRepository.save(document));
     }
 
     @Override
-    public DocumentDto update(Long id, DocumentDto documentDto) {
+    public DocumentDto update(Long id, DocumentUpdateDto updateDto) {
         DocumentEntity document = findDocument(id);
-        document.setTitle(documentDto.getTitle());
-        document.setFileName(documentDto.getFileName());
-        document.setContentType(documentDto.getContentType());
-        document.setFileSize(documentDto.getFileSize());
+        document.setTitle(updateDto.getTitle());
         return documentMapper.mapToDto(documentRepository.save(document));
     }
 
