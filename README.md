@@ -133,7 +133,33 @@ npm run build   # Typprüfung und Build nach dist/
 
 Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
 Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder oder Ursachen (z. B. fehlende PDF-Magic-Bytes).
+Kann nach dem Speichern eines Dokumentes die Benachrichtigung an RabbitMQ nicht zugestellt werden, wird ein `503 Service Unavailable` zurückgegeben.
 Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
+
+## Nachrichten (RabbitMQ)
+
+Nach dem erfolgreichen Hochladen und Speichern eines Dokuments sendet der REST-Server eine Nachricht an den RabbitMQ-Broker, um nachgelagerte Services (z. B. den OCR-Dienst) zu benachrichtigen.
+
+- **Queue**: `ocr.queue`
+- **Format**: JSON (`Jackson2JsonMessageConverter`)
+- **Nachrichtenvertrag (`OcrMessage`)**:
+  ```json
+  {
+    "documentId": 1,
+    "title": "Rechnung",
+    "fileName": "rechnung.pdf"
+  }
+  ```
+
+### RabbitMQ-Konfiguration
+
+In den `application.properties` bzw. über Umgebungsvariablen gesteuert:
+- `spring.rabbitmq.host` (Standard: `localhost` / Vorlage in `.env`)
+- `spring.rabbitmq.port` (Standard: `5672`)
+- `spring.rabbitmq.username` (Standard: `guest`)
+- `spring.rabbitmq.password` (Standard: `guest`)
+
+Sollte die Übertragung an den Broker fehlschlagen, wird eine `MessagePublishException` ausgelöst und vom Global Exception Handler auf `503 Service Unavailable` gemappt.
 
 ### Dokumentstatus
 

@@ -38,6 +38,13 @@ import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValida
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 
 
+import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
+import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
+import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
+import at.fhtw.documentmanagementsystem.messaging.OcrMessagePublisher;
+import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
+
 @Service
 @Transactional
 @RequiredArgsConstructor
@@ -54,6 +61,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentMapper documentMapper;
     private final DocumentHistoryMapper documentHistoryMapper;
     private final DocumentUploadValidator documentUploadValidator;
+    private final OcrMessagePublisher ocrMessagePublisher;
 
     @Override
     public List<DocumentDto> getAll() {
@@ -70,7 +78,15 @@ public class DocumentServiceImpl implements DocumentService {
         documentUploadValidator.validate(uploadDto);
         DocumentEntity document = documentMapper.mapToEntity(uploadDto);
         recordStatus(document, RECEIVED, "Document uploaded");
-        return documentMapper.mapToDto(documentRepository.save(document));
+        DocumentDto savedDocument = documentMapper.mapToDto(documentRepository.save(document));
+
+        ocrMessagePublisher.sendOcrMessage(new OcrMessage(
+                savedDocument.getId(),
+                savedDocument.getTitle(),
+                savedDocument.getFileName()
+        ));
+
+        return savedDocument;
     }
 
     @Override

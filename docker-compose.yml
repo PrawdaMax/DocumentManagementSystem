@@ -12,16 +12,28 @@ services:
       timeout: 5s
       retries: 10
 
+  rabbitmq:
+    image: rabbitmq:4-management-alpine
+    ports:
+      - "5672:5672"
+      - "15672:15672"
+    environment:
+      RABBITMQ_DEFAULT_USER: ${RABBITMQ_USER:-guest}
+      RABBITMQ_DEFAULT_PASS: ${RABBITMQ_PASSWORD:-guest}
+
   rest:
     build: ./paperless-rest
     env_file: .env
     environment:
       DB_HOST: db
+      RABBITMQ_HOST: rabbitmq
     ports:
       - "8081:8081"
     depends_on:
       db:
         condition: service_healthy
+      rabbitmq:
+        condition: service_started
 
   frontend:
     build: ./paperless-frontend

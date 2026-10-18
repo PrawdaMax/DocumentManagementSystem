@@ -1,6 +1,8 @@
 package at.fhtw.documentmanagementsystem.presentation;
 
+import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
+import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
@@ -23,9 +25,19 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.NOT_FOUND, exception.getMessage());
     }
 
+    @ExceptionHandler(InvalidDocumentException.class)
+    public ProblemDetail handleInvalidDocument(InvalidDocumentException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
     @ExceptionHandler(InvalidStatusChangeException.class)
     public ProblemDetail handleInvalidStatusChange(InvalidStatusChangeException exception) {
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(MessagePublishException.class)
+    public ProblemDetail handleMessagePublishException(MessagePublishException exception) {
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
     }
 
     // Nennt bei ungültigen Eingaben die betroffenen Felder, z. B. "title: must not be blank"

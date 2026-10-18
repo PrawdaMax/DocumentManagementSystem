@@ -7,11 +7,13 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
+import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
+import org.springframework.context.annotation.Import;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -34,7 +36,8 @@ import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
 
-@WebMvcTest(DocumentController.class)
+@WebMvcTest(controllers = DocumentController.class)
+@Import(GlobalExceptionHandler.class)
 class DocumentControllerTest {
 
     @Autowired
@@ -42,6 +45,20 @@ class DocumentControllerTest {
 
     @MockitoBean
     private DocumentService documentService;
+
+    @Test
+    void upload_Returns503_WhenMessagePublishFails() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "test.pdf", "application/pdf", new byte[]{0x25, 0x50, 0x44, 0x46});
+
+        when(documentService.upload(any()))
+                .thenThrow(new MessagePublishException("RabbitMQ unreachable"));
+
+        mockMvc.perform(multipart("/api/documents")
+                        .file(file)
+                        .param("title", "Test Title"))
+                .andExpect(status().isServiceUnavailable());
+    }
 
     @Test
     void getAll_returnsDocuments() throws Exception {
