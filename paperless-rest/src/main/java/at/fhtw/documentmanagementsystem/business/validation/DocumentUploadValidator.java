@@ -15,9 +15,6 @@ public class DocumentUploadValidator {
         if (uploadDto == null) {
             throw new InvalidDocumentException("Upload payload must not be null");
         }
-        if (uploadDto.getTitle() == null || uploadDto.getTitle().isBlank()) {
-            throw new InvalidDocumentException("Title must not be blank");
-        }
         if (uploadDto.getFileName() == null || uploadDto.getFileName().isBlank()) {
             throw new InvalidDocumentException("File name must not be blank");
         }

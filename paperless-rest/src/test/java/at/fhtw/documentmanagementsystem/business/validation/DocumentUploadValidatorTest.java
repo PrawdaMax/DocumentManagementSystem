@@ -25,16 +25,14 @@ class DocumentUploadValidatorTest {
     }
 
     @Test
-    void validate_blankTitle_throwsInvalidDocumentException() {
+    void validate_blankTitle_doesNotThrowException() {
         DocumentUploadDto dto = DocumentUploadDto.builder()
                 .title("   ")
                 .fileName("rechnung.pdf")
                 .content("%PDF-1.4 test".getBytes(StandardCharsets.UTF_8))
                 .build();
 
-        assertThatThrownBy(() -> validator.validate(dto))
-                .isInstanceOf(InvalidDocumentException.class)
-                .hasMessageContaining("Title must not be blank");
+        assertThatCode(() -> validator.validate(dto)).doesNotThrowAnyException();
     }
 
     @Test

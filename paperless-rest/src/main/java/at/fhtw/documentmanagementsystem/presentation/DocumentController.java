@@ -48,7 +48,7 @@ public class DocumentController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentDto> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam("title") String title) throws IOException {
+            @RequestParam(value = "title", required = false) String title) throws IOException {
 
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title(title)
