@@ -3,10 +3,13 @@ package at.fhtw.documentmanagementsystem.presentation;
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
 import org.springframework.web.bind.annotation.DeleteMapping;
 import org.springframework.web.bind.annotation.GetMapping;
@@ -16,9 +19,12 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.PutMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
+import org.springframework.web.bind.annotation.RequestParam;
 import org.springframework.web.bind.annotation.ResponseStatus;
 import org.springframework.web.bind.annotation.RestController;
+import org.springframework.web.multipart.MultipartFile;
 
+import java.io.IOException;
 import java.net.URI;
 import java.util.List;
 
@@ -39,15 +45,24 @@ public class DocumentController {
         return documentService.getById(id);
     }
 
-    @PostMapping
-    public ResponseEntity<DocumentDto> create(@Valid @RequestBody DocumentDto documentDto) {
-        DocumentDto created = documentService.create(documentDto);
+    @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
+    public ResponseEntity<DocumentDto> upload(
+            @RequestParam("file") MultipartFile file,
+            @RequestParam("title") String title) throws IOException {
+
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
+                .title(title)
+                .fileName(file.getOriginalFilename())
+                .content(file.getBytes())
+                .build();
+
+        DocumentDto created = documentService.upload(uploadDto);
         return ResponseEntity.created(URI.create("/api/documents/" + created.getId())).body(created);
     }
 
     @PutMapping("/{id}")
-    public DocumentDto update(@PathVariable Long id, @Valid @RequestBody DocumentDto documentDto) {
-        return documentService.update(id, documentDto);
+    public DocumentDto update(@PathVariable Long id, @Valid @RequestBody DocumentUpdateDto updateDto) {
+        return documentService.update(id, updateDto);
     }
 
     @DeleteMapping("/{id}")

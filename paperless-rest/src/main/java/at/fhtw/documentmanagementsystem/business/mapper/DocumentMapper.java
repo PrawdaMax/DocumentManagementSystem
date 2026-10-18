@@ -1,6 +1,7 @@
 package at.fhtw.documentmanagementsystem.business.mapper;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import org.springframework.stereotype.Component;
 
@@ -9,6 +10,9 @@ public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> 
 
     @Override
     public DocumentDto mapToDto(DocumentEntity entity) {
+        if (entity == null) {
+            return null;
+        }
         return DocumentDto.builder()
                 .id(entity.getId())
                 .title(entity.getTitle())
@@ -20,12 +24,15 @@ public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> 
                 .build();
     }
 
-    public DocumentEntity mapToEntity(DocumentDto dto) {
+    public DocumentEntity mapToEntity(DocumentUploadDto uploadDto) {
+        if (uploadDto == null) {
+            return null;
+        }
         return DocumentEntity.builder()
-                .title(dto.getTitle())
-                .fileName(dto.getFileName())
-                .contentType(dto.getContentType())
-                .fileSize(dto.getFileSize())
+                .title(uploadDto.getTitle())
+                .fileName(uploadDto.getFileName())
+                .contentType("application/pdf")
+                .fileSize(uploadDto.getContent() != null ? (long) uploadDto.getContent().length : 0L)
                 .build();
     }
 }

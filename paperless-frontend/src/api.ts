@@ -1,10 +1,16 @@
-import type { DocumentDto, DocumentHistoryDto, DocumentInput, DocumentStatus } from './types';
+import type { DocumentDto, DocumentHistoryDto, DocumentStatus, DocumentUpdateDto } from './types';
 
-async function request<T>(path: string, method = 'GET', body?: object): Promise<T> {
+async function request<T>(path: string, method = 'GET', body?: object | FormData): Promise<T> {
+    const isFormData = body instanceof FormData;
+    const headers: Record<string, string> = {};
+    if (body && !isFormData) {
+        headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(`/api/documents${path}`, {
         method,
-        headers: { 'Content-Type': 'application/json' },
-        body: body ? JSON.stringify(body) : undefined,
+        headers,
+        body: body ? (isFormData ? body : JSON.stringify(body)) : undefined,
     });
 
     if (!response.ok) {
@@ -27,12 +33,15 @@ export function getDocument(id: number) {
     return request<DocumentDto>(`/${id}`);
 }
 
-export function createDocument(input: DocumentInput) {
-    return request<DocumentDto>('', 'POST', input);
+export function uploadDocument(title: string, file: File) {
+    const formData = new FormData();
+    formData.append('title', title);
+    formData.append('file', file);
+    return request<DocumentDto>('', 'POST', formData);
 }
 
-export function updateDocument(id: number, input: DocumentInput) {
-    return request<DocumentDto>(`/${id}`, 'PUT', input);
+export function updateDocument(id: number, updateDto: DocumentUpdateDto) {
+    return request<DocumentDto>(`/${id}`, 'PUT', updateDto);
 }
 
 export function deleteDocument(id: number) {
