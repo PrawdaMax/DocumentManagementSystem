@@ -161,6 +161,15 @@ In den `application.properties` bzw. über Umgebungsvariablen gesteuert:
 
 Sollte die Übertragung an den Broker fehlschlagen, wird eine `MessagePublishException` ausgelöst und vom Global Exception Handler auf `503 Service Unavailable` gemappt.
 
+## Fehlerbehandlung und Logging
+
+- **Fachliche Exceptions**: Alle fachlichen Ausnahmen im Business-Layer erben von der abstrakten Klasse `BusinessException` (`ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException`, `MessagePublishException`).
+- **Zentrale Fehlerbehandlung**: Der `GlobalExceptionHandler` wandelt auftretende Exceptions in strukturierte Antworten im RFC 9457 Format (`ProblemDetail`) um.
+- **Logging-Strategie**:
+  - **4xx-Fehler (Client-Fehler)**: Werden als `WARN` geloggt (z. B. nicht gefundene Ressourcen `404`, ungültige Dokumente oder Parameter `400`, unzulässige Statusübergänge `409`).
+  - **5xx-Fehler (Server-Fehler)**: Werden als `ERROR` samt Stacktrace geloggt (z. B. RabbitMQ-Fehler `503`, Datenbankfehler `DataAccessException` `500` sowie unerwartete Exceptions `500`).
+- **Ablauf-Logging**: Wichtige Business- und Messaging-Operationen (`DocumentServiceImpl`, `RabbitOcrMessagePublisher`) protokollieren ihren Verlauf auf `INFO`-Ebene.
+
 ### Dokumentstatus
 
 Jede Statusänderung wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.

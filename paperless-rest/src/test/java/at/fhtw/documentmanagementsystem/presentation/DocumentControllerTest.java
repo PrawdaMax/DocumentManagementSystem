@@ -14,6 +14,7 @@ import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
+import org.springframework.dao.DataIntegrityViolationException;
 import org.springframework.http.MediaType;
 import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
@@ -176,6 +177,24 @@ class DocumentControllerTest {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Status change from RECEIVED to DONE is not allowed"));
+    }
+
+    @Test
+    void getAll_dataAccessException_returns500() throws Exception {
+        when(documentService.getAll()).thenThrow(new DataIntegrityViolationException("Database error"));
+
+        mockMvc.perform(get("/api/documents"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.detail").value("A database error occurred"));
+    }
+
+    @Test
+    void getAll_unexpectedException_returns500() throws Exception {
+        when(documentService.getAll()).thenThrow(new RuntimeException("Unexpected error"));
+
+        mockMvc.perform(get("/api/documents"))
+                .andExpect(status().isInternalServerError())
+                .andExpect(jsonPath("$.detail").value("An unexpected error occurred"));
     }
 
     private static DocumentDto document(Long id, String title) {
