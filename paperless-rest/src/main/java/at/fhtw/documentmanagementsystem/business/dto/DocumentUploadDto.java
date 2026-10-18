@@ -14,4 +14,8 @@ public class DocumentUploadDto {
     private String title;
     private String fileName;
     private byte[] content;
+
+    public String titleOrFileName() {
+        return title == null || title.isBlank() ? fileName : title.trim();
+    }
 }

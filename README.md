@@ -38,6 +38,27 @@ Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
 | `status.ts`   | Bezeichnung, Farbe und erlaubte Wechsel je Status                  |
 | `format.ts`   | Anzeige von Dateigröße und Datum                                   |
 
+Der OCR-Worker ist ein eigenständiger Service: eigener Container, kein gemeinsamer Code mit dem REST-Server,
+und er hängt nur von RabbitMQ ab. Aufbau von `paperless-ocr-worker/`:
+
+| Pfad                         | Inhalt                                                    |
+|------------------------------|-----------------------------------------------------------|
+| `src/ocr_worker/worker.py`   | der Worker                                                |
+| `src/ocr_worker/__init__.py` | macht `ocr_worker` zu einem Python-Paket (leer)           |
+| `tests/test_worker.py`       | Unit-Tests                                                |
+| `requirements.txt`           | Bibliothek für den Betrieb (`pika`)                       |
+| `requirements-dev.txt`       | zusätzlich für die Entwicklung (`pytest`, `ruff`)         |
+| `pyproject.toml`             | sagt pytest, dass der Code in `src/` liegt                |
+
+In `worker.py`:
+
+- `main()` verbindet sich über `RABBITMQ_URL` mit RabbitMQ und wartet auf Nachrichten in der `ocr-queue`.
+- `on_message()` liest das JSON, loggt den Auftrag und bestätigt die Nachricht (`ack`).
+  Eine fehlerhafte Nachricht wird geloggt und verworfen (`nack` ohne Requeue).
+
+Der Aufbau folgt dem offiziellen RabbitMQ-Tutorial „Work Queues" für Python (Bibliothek `pika`).
+Die OCR selbst kommt in Sprint 4.
+
 ## Voraussetzungen
 
 - Docker Desktop
@@ -52,17 +73,19 @@ Die `.env` wird nicht committed, als Vorlage dient `.env.example`:
 cp .env.example .env
 ```
 
-| Variable            | Beschreibung              |
-|---------------------|---------------------------|
-| `POSTGRES_DB`       | Name der Datenbank        |
-| `POSTGRES_USER`     | Datenbank-Benutzer        |
-| `POSTGRES_PASSWORD` | Passwort des Benutzers    |
+| Variable                | Beschreibung                      |
+|-------------------------|-----------------------------------|
+| `POSTGRES_DB`           | Name der Datenbank                |
+| `POSTGRES_USER`         | Datenbank-Benutzer                |
+| `POSTGRES_PASSWORD`     | Passwort des Datenbank-Benutzers  |
+| `RABBITMQ_DEFAULT_USER` | RabbitMQ-Benutzer                 |
+| `RABBITMQ_DEFAULT_PASS` | Passwort des RabbitMQ-Benutzers   |
 
-`docker compose` übergibt die Werte an die Datenbank und den REST-Server.
+`docker compose` übergibt die Werte an die Datenbank, RabbitMQ, den REST-Server und den OCR-Worker.
 Der lokal gestartete REST-Server liest dieselbe `.env` (`spring.config.import` in `application.properties`).
 
-Hinweis: PostgreSQL übernimmt die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
-muss das Volume mit `docker compose down -v` gelöscht werden.
+Hinweis: PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
+müssen die Volumes mit `docker compose down -v` gelöscht werden.
 
 ## Mit Docker starten
 
@@ -73,8 +96,23 @@ docker compose up --build
 - Web-UI: http://localhost (Dashboard) und http://localhost/documents/{id} (Detailseite)
 - REST-Server: http://localhost:8081
 - PostgreSQL: `localhost:5432` (Zugangsdaten aus der `.env`)
+- RabbitMQ: `localhost:5672` (AMQP) und die Management-UI unter http://localhost:15672
+  (Login mit `RABBITMQ_DEFAULT_USER` und `RABBITMQ_DEFAULT_PASS` aus der `.env`)
+- OCR-Worker: Logs mit `docker compose logs -f ocr-worker`
 
-Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Datenbankdaten gelöscht).
+Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Daten von PostgreSQL und RabbitMQ gelöscht).
+
+### OCR-Worker von Hand testen
+
+Ohne REST-Server lässt sich der Worker testen, indem man eine Nachricht direkt in seine Queue legt:
+
+1. In der Management-UI (http://localhost:15672) unter „Queues and Streams" die `ocr-queue` öffnen.
+2. Unter „Publish message" die Property `content_type` = `application/json` setzen und als Payload
+   `{"documentId": 1, "fileName": "HelloWorld.pdf"}` schicken.
+3. `docker compose logs -f ocr-worker` zeigt `Received OCR job for document 1 (HelloWorld.pdf)`.
+
+Eine fehlerhafte Nachricht (z. B. Payload `hello`) erzeugt eine ERROR-Zeile und wird verworfen,
+der Worker läuft weiter. Ist RabbitMQ nicht erreichbar, beendet sich der Worker und Docker startet ihn neu.
 
 ## Lokale Entwicklung
 
@@ -103,6 +141,20 @@ Die Web-UI ist dann unter http://localhost erreichbar.
 Hinweis: Der Vite-Dev-Server und das Frontend im Container verwenden beide Port 80,
 der `frontend`-Container darf dabei also nicht laufen.
 
+Den OCR-Worker lokal starten (verbindet sich mit dem RabbitMQ aus Docker,
+Benutzer und Passwort in der URL wie in der `.env`):
+
+```bash
+docker compose up -d rabbitmq
+docker compose stop ocr-worker          # sonst teilen sich beide Worker die Aufträge
+cd paperless-ocr-worker
+python3.14 -m venv .venv
+source .venv/bin/activate
+pip install -r requirements-dev.txt
+cd src
+RABBITMQ_URL=amqp://paperless:change-me@localhost python -m ocr_worker.worker
+```
+
 ## Build und Tests
 
 ```bash
@@ -120,20 +172,31 @@ npm run lint    # Linter (oxlint)
 npm run build   # Typprüfung und Build nach dist/
 ```
 
+OCR-Worker prüfen (in der aktivierten `.venv`, siehe „Lokale Entwicklung"):
+
+```bash
+cd paperless-ocr-worker
+python -m pytest   # Unit-Tests, RabbitMQ wird gemockt
+ruff check .       # Linter
+```
+
 ## REST-API
 
 | Methode | Pfad                          | Beschreibung                                   | Antwort              |
 |---------|-------------------------------|------------------------------------------------|----------------------|
 | GET     | `/api/documents`              | Alle Dokumente                                 | 200                  |
 | GET     | `/api/documents/{id}`         | Ein Dokument                                   | 200, 404             |
-| POST    | `/api/documents`              | Dokument anlegen (Status wird `RECEIVED`)      | 201, 400             |
-| PUT     | `/api/documents/{id}`         | Metadaten ändern                               | 200, 400, 404        |
+| POST    | `/api/documents`              | PDF hochladen (Status wird `RECEIVED`)         | 201, 400, 413, 503   |
+| PUT     | `/api/documents/{id}`         | Dokumenttitel ändern                           | 200, 400, 404        |
 | DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen                  | 204, 404             |
 | PATCH   | `/api/documents/{id}/status`  | Status ändern                                  | 200, 400, 404, 409   |
 | GET     | `/api/documents/{id}/history` | Statusverlauf (neuester Eintrag zuerst)        | 200, 404             |
 
+Beim Upload ist `file` Pflicht (nur PDF, max. 20 MB, sonst `413`) und `title` optional (sonst der Dateiname).
+
 Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
-Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder, z. B. `title: must not be blank`.
+Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder oder Ursachen (z. B. fehlende PDF-Magic-Bytes).
+Kann nach dem Speichern eines Dokumentes die Benachrichtigung an RabbitMQ nicht zugestellt werden, wird ein `503 Service Unavailable` zurückgegeben.
 Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
 
 ### Dokumentstatus
@@ -152,10 +215,15 @@ Nicht erlaubte Änderungen werden mit `409 Conflict` abgelehnt.
 ### Beispiele
 
 ```bash
-# Dokument anlegen
+# PDF-Dokument hochladen (Multipart Form-Data)
 curl -X POST http://localhost:8081/api/documents \
+  -F "file=@/pfad/zur/rechnung.pdf" \
+  -F "title=Rechnung März"     # optional, sonst wird der Dateiname verwendet
+
+# Dokumenttitel ändern
+curl -X PUT http://localhost:8081/api/documents/1 \
   -H "Content-Type: application/json" \
-  -d '{"title": "Rechnung März", "fileName": "rechnung.pdf", "contentType": "application/pdf", "fileSize": 12345}'
+  -d '{"title": "Rechnung März (korrigiert)"}'
 
 # Status ändern
 curl -X PATCH http://localhost:8081/api/documents/1/status \
@@ -165,3 +233,37 @@ curl -X PATCH http://localhost:8081/api/documents/1/status \
 # Verlauf anzeigen
 curl http://localhost:8081/api/documents/1/history
 ```
+
+## Nachrichten (RabbitMQ)
+
+Nach dem erfolgreichen Hochladen und Speichern eines Dokuments sendet der REST-Server eine Nachricht an den RabbitMQ-Broker, um nachgelagerte Services (z. B. den OCR-Dienst) zu benachrichtigen.
+
+- **Queue**: `ocr-queue`
+- **Format**: JSON (`JacksonJsonMessageConverter`), der OCR-Worker liest `documentId` und `fileName`
+- **Nachrichtenvertrag (`OcrMessage`)**:
+  ```json
+  {
+    "documentId": 1,
+    "title": "Rechnung",
+    "fileName": "rechnung.pdf"
+  }
+  ```
+
+### RabbitMQ-Konfiguration
+
+In den `application.properties` bzw. über Umgebungsvariablen gesteuert:
+- `spring.rabbitmq.host` (Standard: `localhost`, in Docker `rabbitmq`)
+- `spring.rabbitmq.port` (Standard: `5672`)
+- `spring.rabbitmq.username` (aus `RABBITMQ_DEFAULT_USER` in der `.env`)
+- `spring.rabbitmq.password` (aus `RABBITMQ_DEFAULT_PASS` in der `.env`)
+
+Sollte die Übertragung an den Broker fehlschlagen, wird eine `MessagePublishException` ausgelöst und vom Global Exception Handler auf `503 Service Unavailable` gemappt.
+
+## Fehlerbehandlung und Logging
+
+- **Fachliche Exceptions**: Alle fachlichen Ausnahmen im Business-Layer erben von der abstrakten Klasse `BusinessException` (`ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException`, `MessagePublishException`).
+- **Zentrale Fehlerbehandlung**: Der `GlobalExceptionHandler` wandelt auftretende Exceptions in strukturierte Antworten im RFC 9457 Format (`ProblemDetail`) um.
+- **Logging-Strategie**:
+  - **4xx-Fehler (Client-Fehler)**: Werden als `WARN` geloggt (z. B. nicht gefundene Ressourcen `404`, ungültige Dokumente oder Parameter `400`, unzulässige Statusübergänge `409`).
+  - **5xx-Fehler (Server-Fehler)**: Werden als `ERROR` samt Stacktrace geloggt (z. B. RabbitMQ-Fehler `503`, Datenbankfehler `DataAccessException` `500` sowie unerwartete Exceptions `500`).
+- **Ablauf-Logging**: Wichtige Business- und Messaging-Operationen (`DocumentServiceImpl`, `RabbitOcrMessagePublisher`) protokollieren ihren Verlauf auf `INFO`-Ebene.

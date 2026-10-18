@@ -54,4 +54,16 @@ class DocumentMapperTest {
         assertThat(entity.getContentType()).isEqualTo("application/pdf");
         assertThat(entity.getFileSize()).isEqualTo((long) content.length);
     }
+
+    @Test
+    void mapToEntity_withoutTitle_usesFileNameAsTitle() {
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
+                .fileName("invoice.pdf")
+                .content("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        DocumentEntity entity = documentMapper.mapToEntity(uploadDto);
+
+        assertThat(entity.getTitle()).isEqualTo("invoice.pdf");
+    }
 }

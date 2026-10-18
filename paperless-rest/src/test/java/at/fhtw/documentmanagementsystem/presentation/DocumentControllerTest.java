@@ -100,6 +100,18 @@ class DocumentControllerTest {
     }
 
     @Test
+    void upload_withoutTitle_returns201() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "invoice.pdf", "application/pdf", "%PDF-1.4 test".getBytes(StandardCharsets.UTF_8));
+
+        when(documentService.upload(any(DocumentUploadDto.class))).thenReturn(document(1L, "invoice.pdf"));
+
+        mockMvc.perform(multipart("/api/documents").file(file))
+                .andExpect(status().isCreated())
+                .andExpect(jsonPath("$.title").value("invoice.pdf"));
+    }
+
+    @Test
     void upload_invalidDocument_returns400() throws Exception {
         MockMultipartFile file = new MockMultipartFile(
                 "file",
