@@ -7,7 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { StatusChange } from '../components/StatusChange';
 import { formatBytes, formatDate } from '../format';
 import { STATUS } from '../status';
-import type { DocumentDto, DocumentHistoryDto, DocumentInput, DocumentStatus } from '../types';
+import type { DocumentDto, DocumentHistoryDto, DocumentStatus } from '../types';
 
 const HEADING_STYLE = 'mb-2 text-xs font-bold text-slate-400 uppercase';
 
@@ -25,8 +25,8 @@ export function DocumentPage() {
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
-    async function updateDocument(input: DocumentInput) {
-        setDoc(await api.updateDocument(id, input));
+    async function updateDocumentTitle(title: string) {
+        setDoc(await api.updateDocument(id, { title }));
         setFormOpen(false);
     }
 
@@ -95,9 +95,9 @@ export function DocumentPage() {
                         </ul>
                     </section>
                 </div>
-            )}
+                )}
 
-            {doc && formOpen && <DocumentForm doc={doc} onSave={updateDocument} onCancel={() => setFormOpen(false)} />}
+            {doc && formOpen && <DocumentForm doc={doc} onSaveTitle={updateDocumentTitle} onCancel={() => setFormOpen(false)} />}
         </div>
     );
 }

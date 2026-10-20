@@ -3,164 +3,129 @@
 Semesterprojekt für SWEN3: ein Dokumentenmanagementsystem zum Archivieren von Dokumenten,
 mit OCR, KI-generierten Zusammenfassungen und Volltextsuche.
 
-**Stand Sprint 2:** REST-Server mit PostgreSQL, Verwaltung von Dokumenten, Dokumentstatus mit Verlauf
-als zusätzlicher Use Case sowie eine Web-UI, die über nginx ausgeliefert wird.
+**Stand Sprint 3:** Upload von PDFs über die Web-UI oder die REST-API und Dokumentstatus mit Verlauf
+(zusätzlicher Use Case). Nach jedem Upload schickt der REST-Server über RabbitMQ einen Auftrag an den
+OCR-Worker, der ihn entgegennimmt und loggt. Die eigentliche OCR folgt in Sprint 4.
 
-## Projektstruktur
+- Repository: https://github.com/PrawdaMax/DocumentManagementSystem
+- Kanban-Board: https://github.com/users/PrawdaMax/projects/1
 
-| Pfad                  | Beschreibung                                            |
-|-----------------------|---------------------------------------------------------|
-| `paperless-rest/`     | REST-Server (Java 25, Spring Boot 4, JPA)               |
-| `paperless-frontend/` | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx |
-| `docker-compose.yml`  | Startet alle Services (Web-UI, REST-Server, PostgreSQL) |
-| `.env.example`        | Vorlage für die Zugangsdaten in der `.env`              |
+## Architektur
 
-Im Container liefert nginx die gebaute Web-UI aus und leitet Anfragen an `/api` an den REST-Server weiter.
-
-Der REST-Server ist in drei Schichten aufgebaut:
-
-| Schicht        | Package        | Inhalt                                          |
-|----------------|----------------|-------------------------------------------------|
-| Presentation   | `presentation` | REST-Controller, Fehlerbehandlung               |
-| Business       | `business`     | Services, DTOs, Mapper, fachliche Exceptions    |
-| Persistence    | `persistence`  | JPA-Entities, Repositories                      |
-
-Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
-
-| Datei         | Inhalt                                                             |
-|---------------|--------------------------------------------------------------------|
-| `App.tsx`     | Kopfzeile und Routen                                               |
-| `pages/`      | Dashboard und Detailseite: laden Daten und führen Aktionen aus     |
-| `components/` | Wiederverwendbare Teile (Formular, Statuswechsel, Badge, Fehler)   |
-| `api.ts`      | Alle HTTP-Aufrufe an `/api/documents`                              |
-| `types.ts`    | Typen passend zu den DTOs des REST-Servers                         |
-| `status.ts`   | Bezeichnung, Farbe und erlaubte Wechsel je Status                  |
-| `format.ts`   | Anzeige von Dateigröße und Datum                                   |
-
-## Voraussetzungen
-
-- Docker Desktop
-- JDK 25 und Node.js 24 (nur für die lokale Entwicklung ohne Docker)
-
-## Konfiguration
-
-Zugangsdaten stehen nicht im Code, sondern in einer `.env`-Datei im Projekt-Root.
-Die `.env` wird nicht committed, als Vorlage dient `.env.example`:
-
-```bash
-cp .env.example .env
+```mermaid
+flowchart LR
+    browser([Browser]) -->|HTTP, Port 80| frontend["frontend<br/>nginx + Web-UI"]
+    frontend -->|/api| rest["rest<br/>REST-Server, Port 8081"]
+    rest -->|JPA| db[("db<br/>PostgreSQL")]
+    rest -->|OcrMessage als JSON| queue[["rabbitmq<br/>ocr-queue"]]
+    queue --> worker["ocr-worker<br/>Python"]
 ```
 
-| Variable            | Beschreibung              |
-|---------------------|---------------------------|
-| `POSTGRES_DB`       | Name der Datenbank        |
-| `POSTGRES_USER`     | Datenbank-Benutzer        |
-| `POSTGRES_PASSWORD` | Passwort des Benutzers    |
+| Ordner                  | Inhalt                                                                    |
+|-------------------------|---------------------------------------------------------------------------|
+| `paperless-rest/`       | REST-Server (Java 25, Spring Boot 4, JPA)                                 |
+| `paperless-frontend/`   | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                   |
+| `paperless-ocr-worker/` | OCR-Worker (Python 3.14, pika), ohne gemeinsamen Code mit dem REST-Server |
 
-`docker compose` übergibt die Werte an die Datenbank und den REST-Server.
-Der lokal gestartete REST-Server liest dieselbe `.env` (`spring.config.import` in `application.properties`).
+Der REST-Server hat vier Schichten, jede ist ein Package: `presentation` (Controller, Fehlerbehandlung),
+`business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories)
+und `messaging` (Versand der OCR-Aufträge an RabbitMQ).
 
-Hinweis: PostgreSQL übernimmt die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
-muss das Volume mit `docker compose down -v` gelöscht werden.
-
-## Mit Docker starten
+## Starten
 
 ```bash
+cp .env.example .env        # Zugangsdaten für PostgreSQL und RabbitMQ
 docker compose up --build
 ```
 
-- Web-UI: http://localhost (Dashboard) und http://localhost/documents/{id} (Detailseite)
-- REST-Server: http://localhost:8081
-- PostgreSQL: `localhost:5432` (Zugangsdaten aus der `.env`)
+- Web-UI: http://localhost
+- REST-API: http://localhost:8081/api/documents
+- RabbitMQ-Management: http://localhost:15672 (Login mit den Werten aus der `.env`)
 
-Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Datenbankdaten gelöscht).
+PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
+die Volumes mit `docker compose down -v` löschen.
 
-## Lokale Entwicklung
+## Tests und CI
 
-Nur die Datenbank in Docker starten und den REST-Server aus der IDE oder mit Maven ausführen
-(Arbeitsverzeichnis `paperless-rest`, damit die `.env` gefunden wird):
+**Teststrategie:** Unit-Tests pro Schicht im REST-Server (JUnit 5, Mockito, MockMvc) und für den Worker (pytest).
+Gemockt wird nur an den Systemgrenzen (Datenbank, RabbitMQ), die Tests brauchen also keine laufenden Dienste.
+Die Web-UI hat kaum eigene Logik und wird über Linter und Typprüfung abgesichert. Das Zusammenspiel aller
+Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
-```bash
-docker compose up -d db
-cd paperless-rest
-./mvnw spring-boot:run
-```
-
-Hinweis: Der REST-Server im Container und die lokal gestartete Anwendung verwenden beide Port 8081,
-es kann also immer nur einer der beiden laufen.
-
-Die Web-UI lokal mit dem Vite-Dev-Server starten (leitet `/api` an `localhost:8081` weiter):
-
-```bash
-cd paperless-frontend
-npm install
-npm run dev
-```
-
-Die Web-UI ist dann unter http://localhost erreichbar.
-
-Hinweis: Der Vite-Dev-Server und das Frontend im Container verwenden beide Port 80,
-der `frontend`-Container darf dabei also nicht laufen.
-
-## Build und Tests
-
-```bash
-cd paperless-rest
-./mvnw clean verify
-```
-
-Die Unit-Tests benötigen keine Datenbank, das Repository wird mit Mockito gemockt.
-
-Web-UI prüfen und bauen:
-
-```bash
-cd paperless-frontend
-npm run lint    # Linter (oxlint)
-npm run build   # Typprüfung und Build nach dist/
-```
+**CI:** GitHub Actions (`.github/workflows/ci.yml`) führt diese drei Prüfungen bei jedem Push aus.
 
 ## REST-API
 
-| Methode | Pfad                          | Beschreibung                                   | Antwort              |
-|---------|-------------------------------|------------------------------------------------|----------------------|
-| GET     | `/api/documents`              | Alle Dokumente                                 | 200                  |
-| GET     | `/api/documents/{id}`         | Ein Dokument                                   | 200, 404             |
-| POST    | `/api/documents`              | Dokument anlegen (Status wird `RECEIVED`)      | 201, 400             |
-| PUT     | `/api/documents/{id}`         | Metadaten ändern                               | 200, 400, 404        |
-| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen                  | 204, 404             |
-| PATCH   | `/api/documents/{id}/status`  | Status ändern                                  | 200, 400, 404, 409   |
-| GET     | `/api/documents/{id}/history` | Statusverlauf (neuester Eintrag zuerst)        | 200, 404             |
+| Methode | Pfad                          | Beschreibung                             | Antwort            |
+|---------|-------------------------------|------------------------------------------|--------------------|
+| GET     | `/api/documents`              | Alle Dokumente                           | 200                |
+| GET     | `/api/documents/{id}`         | Ein Dokument                             | 200, 404           |
+| POST    | `/api/documents`              | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
+| PUT     | `/api/documents/{id}`         | Titel ändern                             | 200, 400, 404      |
+| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen            | 204, 404           |
+| PATCH   | `/api/documents/{id}/status`  | Status ändern                            | 200, 400, 404, 409 |
+| GET     | `/api/documents/{id}/history` | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
 
-Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
-Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder, z. B. `title: must not be blank`.
-Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
+Jeder Statuswechsel wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
+Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
 
-### Dokumentstatus
+| Status                       | Erlaubte Wechsel        |
+|------------------------------|-------------------------|
+| `RECEIVED` (nach dem Upload) | `IN_REVIEW`, `REJECTED` |
+| `IN_REVIEW`                  | `DONE`, `REJECTED`      |
+| `REJECTED`                   | `IN_REVIEW`             |
+| `DONE`                       | `ARCHIVED`              |
+| `ARCHIVED`                   | – (Endzustand)          |
 
-Jede Statusänderung wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
-Nicht erlaubte Änderungen werden mit `409 Conflict` abgelehnt.
+## Nachrichten (RabbitMQ)
 
-| Status      | Bedeutung                       | Erlaubte Änderungen      |
-|-------------|---------------------------------|--------------------------|
-| `RECEIVED`  | Eingegangen (beim Anlegen)      | `IN_REVIEW`, `REJECTED`  |
-| `IN_REVIEW` | Wird geprüft                    | `DONE`, `REJECTED`       |
-| `DONE`      | Erledigt                        | `ARCHIVED`               |
-| `REJECTED`  | Abgelehnt                       | `IN_REVIEW`              |
-| `ARCHIVED`  | Abgeschlossen (Endzustand)      | –                        |
+REST-Server und OCR-Worker teilen keinen Code. Der Vertrag zwischen beiden ist diese JSON-Nachricht
+in der durable Queue `ocr-queue` (der Worker liest `documentId` und `fileName`):
 
-### Beispiele
-
-```bash
-# Dokument anlegen
-curl -X POST http://localhost:8081/api/documents \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Rechnung März", "fileName": "rechnung.pdf", "contentType": "application/pdf", "fileSize": 12345}'
-
-# Status ändern
-curl -X PATCH http://localhost:8081/api/documents/1/status \
-  -H "Content-Type: application/json" \
-  -d '{"status": "IN_REVIEW", "comment": "Prüfung gestartet"}'
-
-# Verlauf anzeigen
-curl http://localhost:8081/api/documents/1/history
+```json
+{"documentId": 1, "title": "Rechnung", "fileName": "rechnung.pdf"}
 ```
+
+Ablauf beim Upload:
+
+1. Der REST-Server prüft die Datei (Endung `.pdf` und Magic Bytes `%PDF-`) und speichert das Dokument
+   mit Status `RECEIVED`.
+2. In derselben Transaktion schickt er die Nachricht. Ist RabbitMQ nicht erreichbar, wird das Speichern
+   zurückgerollt, und der Client bekommt `503`.
+3. Der OCR-Worker loggt den Auftrag und bestätigt ihn (`ack`). Eine fehlerhafte Nachricht loggt er als
+   ERROR und verwirft sie (`nack` ohne Requeue). Verliert er die Verbindung, startet Docker ihn neu.
+
+## Validierung, Fehlerbehandlung und Logging
+
+Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean Validation) und im Service
+(PDF-Prüfung, erlaubte Statuswechsel). Jede Schicht hat eigene Exceptions, nur der `GlobalExceptionHandler`
+übersetzt sie in HTTP-Antworten:
+
+| Schicht      | Exception                                                                               | Antwort       |
+|--------------|-----------------------------------------------------------------------------------------|---------------|
+| Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
+| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException` | 404, 400, 409 |
+| Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
+| Presentation | Fallback für alles Unerwartete                                                          | 500           |
+
+Geloggt wird auf `INFO` für Abläufe (Upload, Statuswechsel, gesendete und empfangene Aufträge), auf `WARN`
+für Client-Fehler wie 400, 404 und 409 und auf `ERROR` mit Stacktrace für Server-Fehler.
+Die Logs zeigt `docker compose logs rest` bzw. `docker compose logs ocr-worker`.
+
+## Design-Entscheidungen
+
+- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `OcrMessagePublisher`): Der Service kennt nur
+  die Interfaces und lässt sich mit Mocks testen.
+- **`MultipartFile` bleibt im Controller:** Die Business-Schicht bekommt ein `DocumentUploadDto` und bleibt
+  unabhängig von HTTP.
+- **Senden in der Transaktion:** Es gibt kein gespeichertes Dokument ohne OCR-Auftrag.
+- **OCR-Worker in Python:** Die Worker sollen unabhängig voneinander laufen.
+  Python hat gute Bibliotheken für Tesseract und Gemini.
+- **Der REST-Server verteilt die Aufträge:** Die Worker kennen nur ihre Queue, nicht einander. Fällt einer aus,
+  warten seine Aufträge in der Queue.
+
+## Lessons Learned
+
+- Schnittstellen vorher gemeinsam festlegen
+- Merges prüfen: Ein Konflikt hat alte README-Abschnitte zurückgebracht
+- Pull Requests und CI früh nutzen, statt lokal zu mergen.
