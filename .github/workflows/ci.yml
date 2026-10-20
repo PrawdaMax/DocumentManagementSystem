@@ -1,0 +1,46 @@
+name: CI
+
+on: push
+
+jobs:
+  rest:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: paperless-rest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: 25
+          cache: maven
+      - run: ./mvnw -B verify
+
+  ocr-worker:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: paperless-ocr-worker
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.14"
+      - run: pip install -r requirements-dev.txt
+      - run: python -m pytest
+      - run: ruff check .
+
+  frontend:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: paperless-frontend
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 24
+      - run: npm ci
+      - run: npm run lint
+      - run: npm run build
