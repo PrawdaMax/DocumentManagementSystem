@@ -7,9 +7,10 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
-import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
+import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
+import at.fhtw.documentmanagementsystem.storage.StorageException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
@@ -20,6 +21,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
@@ -59,6 +61,19 @@ class DocumentControllerTest {
                         .file(file)
                         .param("title", "Test Title"))
                 .andExpect(status().isServiceUnavailable());
+    }
+
+    @Test
+    void upload_Returns503_WhenFileStorageFails() throws Exception {
+        MockMultipartFile file = new MockMultipartFile(
+                "file", "test.pdf", "application/pdf", new byte[]{0x25, 0x50, 0x44, 0x46});
+
+        when(documentService.upload(any()))
+                .thenThrow(new StorageException("Could not store file a.pdf", new UnknownHostException("rustfs")));
+
+        mockMvc.perform(multipart("/api/documents").file(file))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.detail").value("File storage is not available"));
     }
 
     @Test

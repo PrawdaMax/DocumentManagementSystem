@@ -1,6 +1,6 @@
-package at.fhtw.documentmanagementsystem.business.exception;
+package at.fhtw.documentmanagementsystem.messaging;
 
-public class MessagePublishException extends BusinessException {
+public class MessagePublishException extends RuntimeException {
 
     public MessagePublishException(String message) {
         super(message);

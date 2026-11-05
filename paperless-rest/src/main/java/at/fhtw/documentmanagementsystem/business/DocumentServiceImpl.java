@@ -16,6 +16,7 @@ import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
+import at.fhtw.documentmanagementsystem.storage.FileStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
@@ -24,6 +25,7 @@ import org.springframework.transaction.annotation.Transactional;
 import java.util.List;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.ARCHIVED;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.DONE;
@@ -49,6 +51,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentHistoryMapper documentHistoryMapper;
     private final DocumentUploadValidator documentUploadValidator;
     private final OcrMessagePublisher ocrMessagePublisher;
+    private final FileStorage fileStorage;
 
     @Override
     public List<DocumentDto> getAll() {
@@ -66,18 +69,22 @@ public class DocumentServiceImpl implements DocumentService {
     public DocumentDto upload(DocumentUploadDto uploadDto) {
         log.info("Uploading document with title: {}, fileName: {}", uploadDto.getTitle(), uploadDto.getFileName());
         documentUploadValidator.validate(uploadDto);
-        DocumentEntity document = documentMapper.mapToEntity(uploadDto);
-        recordStatus(document, RECEIVED, "Document uploaded");
-        DocumentDto savedDocument = documentMapper.mapToDto(documentRepository.save(document));
 
-        ocrMessagePublisher.sendOcrMessage(new OcrMessage(
-                savedDocument.getId(),
-                savedDocument.getTitle(),
-                savedDocument.getFileName()
-        ));
-
-        log.info("Successfully uploaded document with id: {}", savedDocument.getId());
-        return savedDocument;
+        String objectKey = UUID.randomUUID() + ".pdf";
+        fileStorage.store(objectKey, uploadDto.getContent());
+        try {
+            DocumentEntity document = documentMapper.mapToEntity(uploadDto);
+            document.setObjectKey(objectKey);
+            recordStatus(document, RECEIVED, "Document uploaded");
+            DocumentEntity saved = documentRepository.save(document);
+            ocrMessagePublisher.sendOcrMessage(new OcrMessage(saved.getId(), saved.getFileName(), objectKey));
+            log.info("Successfully uploaded document with id: {}", saved.getId());
+            return documentMapper.mapToDto(saved);
+        } catch (RuntimeException e) {
+            log.warn("Upload failed ({}), deleting stored file {}", e.getMessage(), objectKey);
+            fileStorage.delete(objectKey);
+            throw e;
+        }
     }
 
     @Override
@@ -91,7 +98,11 @@ public class DocumentServiceImpl implements DocumentService {
     @Override
     public void delete(Long id) {
         log.info("Deleting document with id: {}", id);
-        documentRepository.delete(findDocument(id));
+        DocumentEntity document = findDocument(id);
+        documentRepository.delete(document);
+        if (document.getObjectKey() != null) {
+            fileStorage.delete(document.getObjectKey());
+        }
     }
 
     @Override

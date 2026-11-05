@@ -11,11 +11,14 @@ import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundExcep
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
 import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
 import at.fhtw.documentmanagementsystem.messaging.OcrMessagePublisher;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
+import at.fhtw.documentmanagementsystem.storage.FileStorage;
+import at.fhtw.documentmanagementsystem.storage.StorageException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.ArgumentCaptor;
@@ -24,6 +27,7 @@ import org.mockito.Mock;
 import org.mockito.Spy;
 import org.mockito.junit.jupiter.MockitoExtension;
 
+import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.ArrayList;
 import java.util.List;
@@ -35,8 +39,10 @@ import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
+import static org.mockito.Mockito.verifyNoInteractions;
 import static org.mockito.Mockito.when;
 
 @ExtendWith(MockitoExtension.class)
@@ -57,11 +63,14 @@ class DocumentServiceImplTest {
     @Mock
     private OcrMessagePublisher ocrMessagePublisher;
 
+    @Mock
+    private FileStorage fileStorage;
+
     @InjectMocks
     private DocumentServiceImpl documentService;
 
     @Test
-    void upload_Success_PublishesOcrMessage() {
+    void upload_Success_StoresFileAndPublishesOcrMessageWithSameKey() {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title("Rechnung")
                 .fileName("rechnung.pdf")
@@ -78,7 +87,34 @@ class DocumentServiceImplTest {
         assertThat(result).isNotNull();
         assertThat(result.getId()).isEqualTo(10L);
         verify(documentUploadValidator).validate(uploadDto);
-        verify(ocrMessagePublisher).sendOcrMessage(new OcrMessage(10L, "Rechnung", "rechnung.pdf"));
+        ArgumentCaptor<String> objectKey = ArgumentCaptor.forClass(String.class);
+        verify(fileStorage).store(objectKey.capture(), eq(uploadDto.getContent()));
+        assertThat(objectKey.getValue()).endsWith(".pdf");
+        verify(ocrMessagePublisher).sendOcrMessage(new OcrMessage(10L, "rechnung.pdf", objectKey.getValue()));
+    }
+
+    @Test
+    void upload_publishFails_deletesStoredFileAndRethrows() {
+        when(documentRepository.save(any(DocumentEntity.class))).thenAnswer(invocation -> invocation.getArgument(0));
+        doThrow(new MessagePublishException("RabbitMQ unreachable")).when(ocrMessagePublisher).sendOcrMessage(any());
+
+        assertThatThrownBy(() -> documentService.upload(pdfUpload()))
+                .isInstanceOf(MessagePublishException.class);
+
+        ArgumentCaptor<String> objectKey = ArgumentCaptor.forClass(String.class);
+        verify(fileStorage).store(objectKey.capture(), any());
+        verify(fileStorage).delete(objectKey.getValue());
+    }
+
+    @Test
+    void upload_storageNotReachable_savesNothingAndSendsNothing() {
+        doThrow(new StorageException("Could not store file", new UnknownHostException("rustfs")))
+                .when(fileStorage).store(any(), any());
+
+        assertThatThrownBy(() -> documentService.upload(pdfUpload()))
+                .isInstanceOf(StorageException.class);
+
+        verifyNoInteractions(documentRepository, ocrMessagePublisher);
     }
 
     @Test
@@ -126,10 +162,14 @@ class DocumentServiceImplTest {
         assertThat(saved.getStatus()).isEqualTo(RECEIVED);
         assertThat(saved.getHistory()).extracting(DocumentHistoryEntity::getStatus).containsExactly(RECEIVED);
         assertThat(result.getId()).isEqualTo(1L);
+
+        ArgumentCaptor<String> objectKey = ArgumentCaptor.forClass(String.class);
+        verify(fileStorage).store(objectKey.capture(), any());
+        assertThat(saved.getObjectKey()).isEqualTo(objectKey.getValue());
     }
 
     @Test
-    void upload_invalidFile_throwsInvalidDocumentException() {
+    void upload_invalidFile_throwsInvalidDocumentExceptionAndStoresNothing() {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title("Invoice")
                 .fileName("invoice.txt")
@@ -141,6 +181,7 @@ class DocumentServiceImplTest {
 
         assertThatThrownBy(() -> documentService.upload(uploadDto))
                 .isInstanceOf(InvalidDocumentException.class);
+        verifyNoInteractions(fileStorage, documentRepository, ocrMessagePublisher);
     }
 
     @Test
@@ -157,13 +198,26 @@ class DocumentServiceImplTest {
     }
 
     @Test
-    void delete_existingId_deletesDocument() {
+    void delete_existingId_deletesDocumentAndFile() {
         DocumentEntity existing = document(1L, "Invoice");
+        existing.setObjectKey("a.pdf");
         when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
 
         documentService.delete(1L);
 
         verify(documentRepository).delete(existing);
+        verify(fileStorage).delete("a.pdf");
+    }
+
+    @Test
+    void delete_documentWithoutFile_deletesOnlyDocument() {
+        DocumentEntity existing = document(1L, "Uploaded in Sprint 3");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.delete(1L);
+
+        verify(documentRepository).delete(existing);
+        verifyNoInteractions(fileStorage);
     }
 
     @Test
@@ -202,6 +256,13 @@ class DocumentServiceImplTest {
         List<DocumentHistoryDto> result = documentService.getHistory(1L);
 
         assertThat(result).extracting(DocumentHistoryDto::getStatus).containsExactly(IN_REVIEW, RECEIVED);
+    }
+
+    private static DocumentUploadDto pdfUpload() {
+        return DocumentUploadDto.builder()
+                .fileName("invoice.pdf")
+                .content("%PDF-1.4 content".getBytes(StandardCharsets.UTF_8))
+                .build();
     }
 
     private static DocumentEntity document(Long id, String title) {

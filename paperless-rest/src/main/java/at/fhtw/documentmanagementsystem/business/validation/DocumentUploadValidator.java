@@ -10,13 +10,20 @@ import java.nio.charset.StandardCharsets;
 public class DocumentUploadValidator {
 
     private static final String PDF_MAGIC_BYTES = "%PDF-";
+    private static final int MAX_LENGTH = 255;
 
     public void validate(DocumentUploadDto uploadDto) {
         if (uploadDto == null) {
             throw new InvalidDocumentException("Upload payload must not be null");
         }
+        if (uploadDto.getTitle() != null && uploadDto.getTitle().length() > MAX_LENGTH) {
+            throw new InvalidDocumentException("Title must not be longer than " + MAX_LENGTH + " characters");
+        }
         if (uploadDto.getFileName() == null || uploadDto.getFileName().isBlank()) {
             throw new InvalidDocumentException("File name must not be blank");
+        }
+        if (uploadDto.getFileName().length() > MAX_LENGTH) {
+            throw new InvalidDocumentException("File name must not be longer than " + MAX_LENGTH + " characters");
         }
         if (!uploadDto.getFileName().toLowerCase().endsWith(".pdf")) {
             throw new InvalidDocumentException("File must have a .pdf extension");

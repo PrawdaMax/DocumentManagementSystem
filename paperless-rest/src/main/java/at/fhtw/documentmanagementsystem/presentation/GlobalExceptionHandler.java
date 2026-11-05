@@ -2,8 +2,9 @@ package at.fhtw.documentmanagementsystem.presentation;
 
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
-import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
+import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
+import at.fhtw.documentmanagementsystem.storage.StorageException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
 import org.springframework.http.HttpHeaders;
@@ -45,6 +46,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleMessagePublishException(MessagePublishException exception) {
         log.error("Message publishing failed: {}", exception.getMessage(), exception);
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, exception.getMessage());
+    }
+
+    @ExceptionHandler(StorageException.class)
+    public ProblemDetail handleStorageException(StorageException exception) {
+        log.error("File storage failed: {}", exception.getMessage(), exception);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "File storage is not available");
     }
 
     @ExceptionHandler(DataAccessException.class)

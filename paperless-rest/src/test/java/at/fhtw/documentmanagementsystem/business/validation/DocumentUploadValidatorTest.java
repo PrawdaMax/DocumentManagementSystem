@@ -36,6 +36,31 @@ class DocumentUploadValidatorTest {
     }
 
     @Test
+    void validate_titleLongerThan255Characters_throwsInvalidDocumentException() {
+        DocumentUploadDto dto = DocumentUploadDto.builder()
+                .title("a".repeat(256))
+                .fileName("rechnung.pdf")
+                .content("%PDF-1.4 test".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(dto))
+                .isInstanceOf(InvalidDocumentException.class)
+                .hasMessage("Title must not be longer than 255 characters");
+    }
+
+    @Test
+    void validate_fileNameLongerThan255Characters_throwsInvalidDocumentException() {
+        DocumentUploadDto dto = DocumentUploadDto.builder()
+                .fileName("a".repeat(252) + ".pdf")
+                .content("%PDF-1.4 test".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(dto))
+                .isInstanceOf(InvalidDocumentException.class)
+                .hasMessageContaining("255 characters");
+    }
+
+    @Test
     void validate_invalidExtension_throwsInvalidDocumentException() {
         DocumentUploadDto dto = DocumentUploadDto.builder()
                 .title("Rechnung")

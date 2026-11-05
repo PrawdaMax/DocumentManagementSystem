@@ -1,6 +1,5 @@
 package at.fhtw.documentmanagementsystem.messaging;
 
-import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.amqp.AmqpException;

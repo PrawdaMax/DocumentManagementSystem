@@ -45,6 +45,8 @@ public class DocumentEntity {
 
     private Long fileSize;
 
+    private String objectKey;
+
     @Column(nullable = false, updatable = false)
     private Instant uploadedAt;
 

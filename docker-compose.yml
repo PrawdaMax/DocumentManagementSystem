@@ -1,7 +1,20 @@
+x-postgres-env: &postgres-env
+  POSTGRES_DB: ${POSTGRES_DB:-paperless}
+  POSTGRES_USER: ${POSTGRES_USER:-paperless}
+  POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-change-me}
+
+x-rabbitmq-env: &rabbitmq-env
+  RABBITMQ_DEFAULT_USER: ${RABBITMQ_DEFAULT_USER:-paperless}
+  RABBITMQ_DEFAULT_PASS: ${RABBITMQ_DEFAULT_PASS:-change-me}
+
+x-rustfs-env: &rustfs-env
+  RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY:-paperless}
+  RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY:-change-me}
+
 services:
   db:
     image: postgres:18-alpine
-    env_file: .env
+    environment: *postgres-env
     ports:
       - "5432:5432"
     volumes:
@@ -15,7 +28,7 @@ services:
   rabbitmq:
     image: rabbitmq:4-management-alpine
     hostname: rabbitmq
-    env_file: .env
+    environment: *rabbitmq-env
     ports:
       - "5672:5672"     # AMQP
       - "15672:15672"   # Management-UI
@@ -27,18 +40,37 @@ services:
       timeout: 5s
       retries: 10
 
+  rustfs:
+    image: rustfs/rustfs:1.0.4
+    environment:
+      <<: *rustfs-env
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "9000:9000"     # S3-API
+      - "9001:9001"     # Web-Konsole
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fs", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
   rest:
     build: ./paperless-rest
-    env_file: .env
     environment:
+      <<: [*postgres-env, *rabbitmq-env, *rustfs-env]
       DB_HOST: db
       RABBITMQ_HOST: rabbitmq
+      RUSTFS_ENDPOINT: http://rustfs:9000
     ports:
       - "8081:8081"
     depends_on:
       db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      rustfs:
         condition: service_healthy
 
   frontend:
@@ -51,7 +83,7 @@ services:
   ocr-worker:
     build: ./paperless-ocr-worker
     environment:
-      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER:-paperless}:${RABBITMQ_DEFAULT_PASS:-change-me}@rabbitmq
     depends_on:
       rabbitmq:
         condition: service_healthy
@@ -61,3 +93,4 @@ services:
 volumes:
   pgdata:
   rabbitmq-data:
+  rustfs-data:

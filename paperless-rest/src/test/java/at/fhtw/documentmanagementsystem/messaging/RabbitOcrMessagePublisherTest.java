@@ -1,6 +1,5 @@
 package at.fhtw.documentmanagementsystem.messaging;
 
-import at.fhtw.documentmanagementsystem.business.exception.MessagePublishException;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
 import org.mockito.InjectMocks;
@@ -24,7 +23,7 @@ class RabbitOcrMessagePublisherTest {
 
     @Test
     void sendOcrMessage_Success() {
-        OcrMessage message = new OcrMessage(1L, "Invoice", "invoice.pdf");
+        OcrMessage message = new OcrMessage(1L, "invoice.pdf", "a.pdf");
 
         publisher.sendOcrMessage(message);
 
@@ -33,7 +32,7 @@ class RabbitOcrMessagePublisherTest {
 
     @Test
     void sendOcrMessage_ThrowsMessagePublishException_WhenAmqpFails() {
-        OcrMessage message = new OcrMessage(1L, "Invoice", "invoice.pdf");
+        OcrMessage message = new OcrMessage(1L, "invoice.pdf", "a.pdf");
         doThrow(new AmqpException("Connection error")).when(rabbitTemplate).convertAndSend(RabbitMqConfig.OCR_QUEUE, message);
 
         assertThrows(MessagePublishException.class, () -> publisher.sendOcrMessage(message));

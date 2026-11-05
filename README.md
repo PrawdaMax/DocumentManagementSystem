@@ -17,6 +17,7 @@ flowchart LR
     browser([Browser]) -->|HTTP, Port 80| frontend["frontend<br/>nginx + Web-UI"]
     frontend -->|/api| rest["rest<br/>REST-Server, Port 8081"]
     rest -->|JPA| db[("db<br/>PostgreSQL")]
+    rest -->|PDF| rustfs[("rustfs<br/>Objektspeicher")]
     rest -->|OcrMessage als JSON| queue[["rabbitmq<br/>ocr-queue"]]
     queue --> worker["ocr-worker<br/>Python"]
 ```
@@ -27,20 +28,24 @@ flowchart LR
 | `paperless-frontend/`   | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                   |
 | `paperless-ocr-worker/` | OCR-Worker (Python 3.14, pika), ohne gemeinsamen Code mit dem REST-Server |
 
-Der REST-Server hat vier Schichten, jede ist ein Package: `presentation` (Controller, Fehlerbehandlung),
-`business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories)
-und `messaging` (Versand der OCR-Aufträge an RabbitMQ).
+Der REST-Server hat fünf Schichten, jede ist ein Package: `presentation` (Controller, Fehlerbehandlung),
+`business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories),
+`messaging` (Versand der OCR-Aufträge an RabbitMQ) und `storage` (PDFs in RustFS, über die S3-API).
 
 ## Starten
 
 ```bash
-cp .env.example .env        # Zugangsdaten für PostgreSQL und RabbitMQ
 docker compose up --build
 ```
 
+Eine `.env` ist nicht nötig: Ohne sie gelten die Default-Zugangsdaten aus `docker-compose.yml`
+(Benutzer `paperless`, Passwort `change-me`, nur für die lokale Entwicklung). Eigene Werte mit
+`cp .env.example .env` anlegen und anpassen.
+
 - Web-UI: http://localhost
 - REST-API: http://localhost:8081/api/documents
-- RabbitMQ-Management: http://localhost:15672 (Login mit den Werten aus der `.env`)
+- RabbitMQ-Management: http://localhost:15672
+- RustFS-Konsole (Bucket `documents` mit den PDFs): http://localhost:9001
 
 PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
 die Volumes mit `docker compose down -v` löschen.
@@ -48,7 +53,7 @@ die Volumes mit `docker compose down -v` löschen.
 ## Tests und CI
 
 **Teststrategie:** Unit-Tests pro Schicht im REST-Server (JUnit 5, Mockito, MockMvc) und für den Worker (pytest).
-Gemockt wird nur an den Systemgrenzen (Datenbank, RabbitMQ), die Tests brauchen also keine laufenden Dienste.
+Gemockt wird nur an den Systemgrenzen (Datenbank, RabbitMQ, RustFS), die Tests brauchen also keine laufenden Dienste.
 Die Web-UI hat kaum eigene Logik und wird über Linter und Typprüfung abgesichert. Das Zusammenspiel aller
 Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
@@ -62,7 +67,7 @@ Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint
 | GET     | `/api/documents/{id}`         | Ein Dokument                             | 200, 404           |
 | POST    | `/api/documents`              | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
 | PUT     | `/api/documents/{id}`         | Titel ändern                             | 200, 400, 404      |
-| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen            | 204, 404           |
+| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf und PDF löschen    | 204, 404, 503      |
 | PATCH   | `/api/documents/{id}/status`  | Status ändern                            | 200, 400, 404, 409 |
 | GET     | `/api/documents/{id}/history` | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
 
@@ -80,18 +85,20 @@ Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
 ## Nachrichten (RabbitMQ)
 
 REST-Server und OCR-Worker teilen keinen Code. Der Vertrag zwischen beiden ist diese JSON-Nachricht
-in der durable Queue `ocr-queue` (der Worker liest `documentId` und `fileName`):
+in der durable Queue `ocr-queue`. Die PDF liegt in RustFS (Bucket `documents`), die Nachricht enthält
+nur ihren Schlüssel `objectKey`:
 
 ```json
-{"documentId": 1, "title": "Rechnung", "fileName": "rechnung.pdf"}
+{"documentId": 1, "fileName": "rechnung.pdf", "objectKey": "3f2c9a1e-7b4d-4c2a-9f1e-2b8c6d0a5e47.pdf"}
 ```
 
 Ablauf beim Upload:
 
-1. Der REST-Server prüft die Datei (Endung `.pdf` und Magic Bytes `%PDF-`) und speichert das Dokument
-   mit Status `RECEIVED`.
-2. In derselben Transaktion schickt er die Nachricht. Ist RabbitMQ nicht erreichbar, wird das Speichern
-   zurückgerollt, und der Client bekommt `503`.
+1. Der REST-Server prüft die Datei (Endung `.pdf` und Magic Bytes `%PDF-`) und speichert die PDF unter
+   `<UUID>.pdf` in RustFS. Ist RustFS nicht erreichbar, entsteht nichts, und der Client bekommt `503`.
+2. Danach speichert er das Dokument mit Status `RECEIVED` und schickt in derselben Transaktion die Nachricht.
+   Ist RabbitMQ nicht erreichbar, wird das Speichern zurückgerollt, die PDF wieder gelöscht, und der Client
+   bekommt `503`.
 3. Der OCR-Worker loggt den Auftrag und bestätigt ihn (`ack`). Eine fehlerhafte Nachricht loggt er als
    ERROR und verwirft sie (`nack` ohne Requeue). Verliert er die Verbindung, startet Docker ihn neu.
 
@@ -106,6 +113,7 @@ Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean V
 | Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
 | Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException` | 404, 400, 409 |
 | Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
+| Storage      | `StorageException` (RustFS nicht erreichbar)                                            | 503           |
 | Presentation | Fallback für alles Unerwartete                                                          | 500           |
 
 Geloggt wird auf `INFO` für Abläufe (Upload, Statuswechsel, gesendete und empfangene Aufträge), auf `WARN`
@@ -114,8 +122,10 @@ Die Logs zeigt `docker compose logs rest` bzw. `docker compose logs ocr-worker`.
 
 ## Design-Entscheidungen
 
-- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `OcrMessagePublisher`): Der Service kennt nur
-  die Interfaces und lässt sich mit Mocks testen.
+- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `OcrMessagePublisher`, `FileStorage`): Der Service
+  kennt nur die Interfaces und lässt sich mit Mocks testen. Ein anderer S3-Speicher ändert nur `docker-compose.yml`.
+- **PDF in RustFS, nur der Schlüssel in der Nachricht** (Claim-Check): Die Nachrichten bleiben klein. Schlägt
+  nach dem Speichern der PDF etwas fehl, löscht der REST-Server sie wieder (Kompensation).
 - **`MultipartFile` bleibt im Controller:** Die Business-Schicht bekommt ein `DocumentUploadDto` und bleibt
   unabhängig von HTTP.
 - **Senden in der Transaktion:** Es gibt kein gespeichertes Dokument ohne OCR-Auftrag.
