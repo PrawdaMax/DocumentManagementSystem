@@ -10,8 +10,9 @@ import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundExcep
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.IndexMessage;
+import at.fhtw.documentmanagementsystem.messaging.MessagePublisher;
 import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
-import at.fhtw.documentmanagementsystem.messaging.OcrMessagePublisher;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
@@ -50,7 +51,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentMapper documentMapper;
     private final DocumentHistoryMapper documentHistoryMapper;
     private final DocumentUploadValidator documentUploadValidator;
-    private final OcrMessagePublisher ocrMessagePublisher;
+    private final MessagePublisher messagePublisher;
     private final FileStorage fileStorage;
 
     @Override
@@ -71,13 +72,13 @@ public class DocumentServiceImpl implements DocumentService {
         documentUploadValidator.validate(uploadDto);
 
         String objectKey = UUID.randomUUID() + ".pdf";
-        fileStorage.store(objectKey, uploadDto.getContent());
+        fileStorage.store(objectKey, uploadDto.getFileContent());
         try {
             DocumentEntity document = documentMapper.mapToEntity(uploadDto);
             document.setObjectKey(objectKey);
             recordStatus(document, RECEIVED, "Document uploaded");
             DocumentEntity saved = documentRepository.save(document);
-            ocrMessagePublisher.sendOcrMessage(new OcrMessage(saved.getId(), saved.getFileName(), objectKey));
+            messagePublisher.sendOcrMessage(new OcrMessage(saved.getId(), saved.getFileName(), objectKey));
             log.info("Successfully uploaded document with id: {}", saved.getId());
             return documentMapper.mapToDto(saved);
         } catch (RuntimeException e) {
@@ -92,7 +93,11 @@ public class DocumentServiceImpl implements DocumentService {
         log.info("Updating document with id: {}", id);
         DocumentEntity document = findDocument(id);
         document.setTitle(updateDto.getTitle());
-        return documentMapper.mapToDto(documentRepository.save(document));
+        DocumentEntity saved = documentRepository.save(document);
+        if (saved.getContent() != null) {
+            sendIndexMessage(saved);
+        }
+        return documentMapper.mapToDto(saved);
     }
 
     @Override
@@ -122,6 +127,24 @@ public class DocumentServiceImpl implements DocumentService {
     public List<DocumentHistoryDto> getHistory(Long id) {
         log.info("Fetching history for document with id: {}", id);
         return documentHistoryMapper.mapToDto(findDocument(id).getHistory());
+    }
+
+    @Override
+    public void saveOcrResult(Long id, String content) {
+        log.info("Saving OCR result for document with id: {}", id);
+        DocumentEntity document = documentRepository.findById(id).orElse(null);
+        if (document == null) {
+            log.warn("Document with id {} no longer exists, OCR result is ignored", id);
+            return;
+        }
+        document.setContent(content);
+        recordStatus(document, document.getStatus(), "OCR completed");
+        documentRepository.save(document);
+        sendIndexMessage(document);
+    }
+
+    private void sendIndexMessage(DocumentEntity document) {
+        messagePublisher.sendIndexMessage(new IndexMessage(document.getId(), document.getTitle(), document.getContent()));
     }
 
     private DocumentEntity findDocument(Long id) {

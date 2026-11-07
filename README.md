@@ -18,8 +18,9 @@ flowchart LR
     frontend -->|/api| rest["rest<br/>REST-Server, Port 8081"]
     rest -->|JPA| db[("db<br/>PostgreSQL")]
     rest -->|PDF| rustfs[("rustfs<br/>Objektspeicher")]
-    rest -->|OcrMessage als JSON| queue[["rabbitmq<br/>ocr-queue"]]
-    queue --> worker["ocr-worker<br/>Python"]
+    rest -->|ocr-queue| worker["ocr-worker<br/>Python"]
+    worker -->|ocr-result-queue| rest
+    rest -->|index-queue| index[["rabbitmq<br/>index-queue"]]
 ```
 
 | Ordner                  | Inhalt                                                                    |
@@ -28,9 +29,9 @@ flowchart LR
 | `paperless-frontend/`   | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                   |
 | `paperless-ocr-worker/` | OCR-Worker (Python 3.14, pika), ohne gemeinsamen Code mit dem REST-Server |
 
-Der REST-Server hat fünf Schichten, jede ist ein Package: `presentation` (Controller, Fehlerbehandlung),
+Der REST-Server hat fünf Schichten, jede ist ein Package: `presentation` (Controller, Listener, Fehlerbehandlung),
 `business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories),
-`messaging` (Versand der OCR-Aufträge an RabbitMQ) und `storage` (PDFs in RustFS, über die S3-API).
+`messaging` (Nachrichten und Queues von RabbitMQ) und `storage` (PDFs in RustFS, über die S3-API).
 
 ## Starten
 
@@ -64,7 +65,7 @@ Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint
 | Methode | Pfad                          | Beschreibung                             | Antwort            |
 |---------|-------------------------------|------------------------------------------|--------------------|
 | GET     | `/api/documents`              | Alle Dokumente                           | 200                |
-| GET     | `/api/documents/{id}`         | Ein Dokument                             | 200, 404           |
+| GET     | `/api/documents/{id}`         | Ein Dokument, OCR-Text in `content`      | 200, 404           |
 | POST    | `/api/documents`              | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
 | PUT     | `/api/documents/{id}`         | Titel ändern                             | 200, 400, 404      |
 | DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf und PDF löschen    | 204, 404, 503      |
@@ -84,13 +85,14 @@ Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
 
 ## Nachrichten (RabbitMQ)
 
-REST-Server und OCR-Worker teilen keinen Code. Der Vertrag zwischen beiden ist diese JSON-Nachricht
-in der durable Queue `ocr-queue`. Die PDF liegt in RustFS (Bucket `documents`), die Nachricht enthält
-nur ihren Schlüssel `objectKey`:
+REST-Server und Worker teilen keinen Code. Der Vertrag zwischen ihnen sind diese JSON-Nachrichten in durable
+Queues. Die PDF liegt in RustFS (Bucket `documents`), der OCR-Auftrag enthält nur ihren Schlüssel `objectKey`.
 
-```json
-{"documentId": 1, "fileName": "rechnung.pdf", "objectKey": "3f2c9a1e-7b4d-4c2a-9f1e-2b8c6d0a5e47.pdf"}
-```
+| Queue              | Von → An               | Nachricht                                                                   |
+|--------------------|------------------------|-----------------------------------------------------------------------------|
+| `ocr-queue`        | REST → OCR-Worker      | `{"documentId": 1, "fileName": "rechnung.pdf", "objectKey": "3f2c….pdf"}`   |
+| `ocr-result-queue` | OCR-Worker → REST      | `{"documentId": 1, "content": "Hello World"}`                               |
+| `index-queue`      | REST → Indexing-Worker | `{"documentId": 1, "title": "Rechnung", "content": "Hello World"}`          |
 
 Ablauf beim Upload:
 
@@ -99,8 +101,12 @@ Ablauf beim Upload:
 2. Danach speichert er das Dokument mit Status `RECEIVED` und schickt in derselben Transaktion die Nachricht.
    Ist RabbitMQ nicht erreichbar, wird das Speichern zurückgerollt, die PDF wieder gelöscht, und der Client
    bekommt `503`.
-3. Der OCR-Worker loggt den Auftrag und bestätigt ihn (`ack`). Eine fehlerhafte Nachricht loggt er als
-   ERROR und verwirft sie (`nack` ohne Requeue). Verliert er die Verbindung, startet Docker ihn neu.
+3. Der OCR-Worker erkennt den Text und schickt ihn an `ocr-result-queue`. Eine fehlerhafte Nachricht loggt er
+   als ERROR und verwirft sie (`nack` ohne Requeue). Verliert er die Verbindung, startet Docker ihn neu.
+4. Der REST-Server speichert den Text im Feld `content`, schreibt „OCR completed“ in den Verlauf und schickt
+   Titel und Text an `index-queue`. Ändert sich später der Titel, schickt er den Index-Auftrag erneut.
+   Wurde das Dokument inzwischen gelöscht, ignoriert er das Ergebnis (WARN im Log). Eine Nachricht, die er nicht
+   verarbeiten kann, verwirft er, statt sie endlos neu zuzustellen (`default-requeue-rejected=false`).
 
 ## Validierung, Fehlerbehandlung und Logging
 
@@ -122,10 +128,12 @@ Die Logs zeigt `docker compose logs rest` bzw. `docker compose logs ocr-worker`.
 
 ## Design-Entscheidungen
 
-- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `OcrMessagePublisher`, `FileStorage`): Der Service
+- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `MessagePublisher`, `FileStorage`): Der Service
   kennt nur die Interfaces und lässt sich mit Mocks testen. Ein anderer S3-Speicher ändert nur `docker-compose.yml`.
 - **PDF in RustFS, nur der Schlüssel in der Nachricht** (Claim-Check): Die Nachrichten bleiben klein. Schlägt
   nach dem Speichern der PDF etwas fehl, löscht der REST-Server sie wieder (Kompensation).
+- **Listener in `presentation`:** Controller und `OcrResultListener` sind beide Eingänge von außen und rufen nur
+  den Service auf. Läge der Listener in `messaging`, gäbe es einen Paketzyklus `business` ↔ `messaging`.
 - **`MultipartFile` bleibt im Controller:** Die Business-Schicht bekommt ein `DocumentUploadDto` und bleibt
   unabhängig von HTTP.
 - **Senden in der Transaktion:** Es gibt kein gespeichertes Dokument ohne OCR-Auftrag.

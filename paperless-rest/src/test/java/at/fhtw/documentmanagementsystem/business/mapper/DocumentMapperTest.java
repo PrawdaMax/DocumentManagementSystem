@@ -24,6 +24,7 @@ class DocumentMapperTest {
                 .contentType("application/pdf")
                 .fileSize(1024L)
                 .uploadedAt(uploadedAt)
+                .content("Hello World")
                 .build();
 
         DocumentDto dto = documentMapper.mapToDto(entity);
@@ -34,6 +35,7 @@ class DocumentMapperTest {
         assertThat(dto.getContentType()).isEqualTo("application/pdf");
         assertThat(dto.getFileSize()).isEqualTo(1024L);
         assertThat(dto.getUploadedAt()).isEqualTo(uploadedAt);
+        assertThat(dto.getContent()).isEqualTo("Hello World");
     }
 
     @Test
@@ -42,7 +44,7 @@ class DocumentMapperTest {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title("Invoice")
                 .fileName("invoice.pdf")
-                .content(content)
+                .fileContent(content)
                 .build();
 
         DocumentEntity entity = documentMapper.mapToEntity(uploadDto);
@@ -59,7 +61,7 @@ class DocumentMapperTest {
     void mapToEntity_withoutTitle_usesFileNameAsTitle() {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .fileName("invoice.pdf")
-                .content("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
+                .fileContent("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
                 .build();
 
         DocumentEntity entity = documentMapper.mapToEntity(uploadDto);

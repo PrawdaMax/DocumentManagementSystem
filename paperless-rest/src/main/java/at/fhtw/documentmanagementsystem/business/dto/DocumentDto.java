@@ -21,4 +21,5 @@ public class DocumentDto {
     private Long fileSize;
     private Instant uploadedAt;
     private DocumentStatus status;
+    private String content;
 }

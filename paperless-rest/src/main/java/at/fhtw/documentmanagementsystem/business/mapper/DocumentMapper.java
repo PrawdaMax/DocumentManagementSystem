@@ -21,6 +21,7 @@ public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> 
                 .fileSize(entity.getFileSize())
                 .uploadedAt(entity.getUploadedAt())
                 .status(entity.getStatus())
+                .content(entity.getContent())
                 .build();
     }
 
@@ -32,7 +33,7 @@ public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> 
                 .title(uploadDto.titleOrFileName())
                 .fileName(uploadDto.getFileName())
                 .contentType("application/pdf")
-                .fileSize(uploadDto.getContent() != null ? (long) uploadDto.getContent().length : 0L)
+                .fileSize(uploadDto.getFileContent() != null ? (long) uploadDto.getFileContent().length : 0L)
                 .build();
     }
 }

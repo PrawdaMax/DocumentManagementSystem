@@ -23,4 +23,6 @@ public interface DocumentService {
     DocumentDto changeStatus(Long id, StatusChangeDto statusChangeDto);
 
     List<DocumentHistoryDto> getHistory(Long id);
+
+    void saveOcrResult(Long id, String content);
 }

@@ -53,7 +53,7 @@ public class DocumentController {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title(title)
                 .fileName(file.getOriginalFilename())
-                .content(file.getBytes())
+                .fileContent(file.getBytes())
                 .build();
 
         DocumentDto created = documentService.upload(uploadDto);

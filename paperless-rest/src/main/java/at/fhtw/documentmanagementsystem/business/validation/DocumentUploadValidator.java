@@ -28,12 +28,12 @@ public class DocumentUploadValidator {
         if (!uploadDto.getFileName().toLowerCase().endsWith(".pdf")) {
             throw new InvalidDocumentException("File must have a .pdf extension");
         }
-        if (uploadDto.getContent() == null || uploadDto.getContent().length < PDF_MAGIC_BYTES.length()) {
+        if (uploadDto.getFileContent() == null || uploadDto.getFileContent().length < PDF_MAGIC_BYTES.length()) {
             throw new InvalidDocumentException("File content is empty or not a valid PDF");
         }
 
         String magicHeader = new String(
-                uploadDto.getContent(), 0, PDF_MAGIC_BYTES.length(), StandardCharsets.US_ASCII);
+                uploadDto.getFileContent(), 0, PDF_MAGIC_BYTES.length(), StandardCharsets.US_ASCII);
         if (!PDF_MAGIC_BYTES.equals(magicHeader)) {
             throw new InvalidDocumentException("File does not start with PDF magic bytes (%PDF-)");
         }

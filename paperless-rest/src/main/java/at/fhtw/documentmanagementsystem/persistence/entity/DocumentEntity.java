@@ -47,6 +47,9 @@ public class DocumentEntity {
 
     private String objectKey;
 
+    @Column(columnDefinition = "text")
+    private String content;
+
     @Column(nullable = false, updatable = false)
     private Instant uploadedAt;
 
