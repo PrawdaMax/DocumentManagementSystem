@@ -1,5 +1,6 @@
 package at.fhtw.documentmanagementsystem.presentation;
 
+import at.fhtw.documentmanagementsystem.business.DocumentSearchService;
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
@@ -34,10 +35,16 @@ import java.util.List;
 public class DocumentController {
 
     private final DocumentService documentService;
+    private final DocumentSearchService documentSearchService;
 
     @GetMapping
     public List<DocumentDto> getAll() {
         return documentService.getAll();
+    }
+
+    @GetMapping("/search")
+    public List<DocumentDto> search(@RequestParam String query) {
+        return documentSearchService.search(query);
     }
 
     @GetMapping("/{id}")

@@ -21,6 +21,7 @@ flowchart LR
     rest -->|ocr-queue| worker["ocr-worker<br/>Python"]
     worker -->|ocr-result-queue| rest
     rest -->|index-queue| index[["rabbitmq<br/>index-queue"]]
+    rest -->|Suche| es[("elasticsearch<br/>Index documents")]
 ```
 
 | Ordner                  | Inhalt                                                                    |
@@ -29,9 +30,10 @@ flowchart LR
 | `paperless-frontend/`   | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                   |
 | `paperless-ocr-worker/` | OCR-Worker (Python 3.14, pika), ohne gemeinsamen Code mit dem REST-Server |
 
-Der REST-Server hat fünf Schichten, jede ist ein Package: `presentation` (Controller, Listener, Fehlerbehandlung),
-`business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories),
-`messaging` (Nachrichten und Queues von RabbitMQ) und `storage` (PDFs in RustFS, über die S3-API).
+Der REST-Server hat sechs Schichten, jede ist ein Package: `presentation` (Controller, Listener, Fehlerbehandlung),
+`business` (Services, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories),
+`messaging` (Nachrichten und Queues von RabbitMQ), `storage` (PDFs in RustFS, über die S3-API)
+und `search` (Suche in Elasticsearch).
 
 ## Starten
 
@@ -54,7 +56,8 @@ die Volumes mit `docker compose down -v` löschen.
 ## Tests und CI
 
 **Teststrategie:** Unit-Tests pro Schicht im REST-Server (JUnit 5, Mockito, MockMvc) und für den Worker (pytest).
-Gemockt wird nur an den Systemgrenzen (Datenbank, RabbitMQ, RustFS), die Tests brauchen also keine laufenden Dienste.
+Gemockt wird nur an den Systemgrenzen (Datenbank, RabbitMQ, RustFS, Elasticsearch), die Tests brauchen also keine
+laufenden Dienste.
 Die Web-UI hat kaum eigene Logik und wird über Linter und Typprüfung abgesichert. Das Zusammenspiel aller
 Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
@@ -65,10 +68,11 @@ Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint
 | Methode | Pfad                          | Beschreibung                             | Antwort            |
 |---------|-------------------------------|------------------------------------------|--------------------|
 | GET     | `/api/documents`              | Alle Dokumente                           | 200                |
+| GET     | `/api/documents/search?query=` | Volltextsuche in Titel und Text, unscharf, beste Treffer zuerst | 200, 400, 503 |
 | GET     | `/api/documents/{id}`         | Ein Dokument, OCR-Text in `content`      | 200, 404           |
 | POST    | `/api/documents`              | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
 | PUT     | `/api/documents/{id}`         | Titel ändern                             | 200, 400, 404      |
-| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf und PDF löschen    | 204, 404, 503      |
+| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf, PDF und Suchindex | 204, 404, 503      |
 | PATCH   | `/api/documents/{id}/status`  | Status ändern                            | 200, 400, 404, 409 |
 | GET     | `/api/documents/{id}/history` | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
 
@@ -117,9 +121,10 @@ Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean V
 | Schicht      | Exception                                                                               | Antwort       |
 |--------------|-----------------------------------------------------------------------------------------|---------------|
 | Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
-| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException` | 404, 400, 409 |
+| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidSearchQueryException`, `InvalidStatusChangeException` | 404, 400, 400, 409 |
 | Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
 | Storage      | `StorageException` (RustFS nicht erreichbar)                                            | 503           |
+| Search       | `SearchException` (Elasticsearch nicht erreichbar)                                      | 503           |
 | Presentation | Fallback für alles Unerwartete                                                          | 500           |
 
 Geloggt wird auf `INFO` für Abläufe (Upload, Statuswechsel, gesendete und empfangene Aufträge), auf `WARN`
@@ -128,8 +133,12 @@ Die Logs zeigt `docker compose logs rest` bzw. `docker compose logs ocr-worker`.
 
 ## Design-Entscheidungen
 
-- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `MessagePublisher`, `FileStorage`): Der Service
+- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `MessagePublisher`, `FileStorage`, `SearchIndex`): Der Service
   kennt nur die Interfaces und lässt sich mit Mocks testen. Ein anderer S3-Speicher ändert nur `docker-compose.yml`.
+- **Suche als eigener Service** (`DocumentSearchService`): `DocumentService` bleibt für das Verwalten zuständig.
+  Elasticsearch liefert nur die IDs in der Reihenfolge der Relevanz, die Daten kommen aus PostgreSQL. Gelöschte
+  Dokumente fallen so heraus, auch wenn sie noch im Index stehen. Der REST-Server wartet beim Start nicht auf
+  Elasticsearch: Ist es nicht erreichbar, antwortet nur die Suche mit `503`.
 - **PDF in RustFS, nur der Schlüssel in der Nachricht** (Claim-Check): Die Nachrichten bleiben klein. Schlägt
   nach dem Speichern der PDF etwas fehl, löscht der REST-Server sie wieder (Kompensation).
 - **Listener in `presentation`:** Controller und `OcrResultListener` sind beide Eingänge von außen und rufen nur

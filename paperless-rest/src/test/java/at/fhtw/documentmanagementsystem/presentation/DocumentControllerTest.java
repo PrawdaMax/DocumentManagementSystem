@@ -1,15 +1,18 @@
 package at.fhtw.documentmanagementsystem.presentation;
 
+import at.fhtw.documentmanagementsystem.business.DocumentSearchService;
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidSearchQueryException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
+import at.fhtw.documentmanagementsystem.search.SearchException;
 import at.fhtw.documentmanagementsystem.storage.StorageException;
 import org.junit.jupiter.api.Test;
 import org.springframework.beans.factory.annotation.Autowired;
@@ -21,6 +24,7 @@ import org.springframework.mock.web.MockMultipartFile;
 import org.springframework.test.context.bean.override.mockito.MockitoBean;
 import org.springframework.test.web.servlet.MockMvc;
 
+import java.net.ConnectException;
 import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
@@ -48,6 +52,44 @@ class DocumentControllerTest {
 
     @MockitoBean
     private DocumentService documentService;
+
+    @MockitoBean
+    private DocumentSearchService documentSearchService;
+
+    @Test
+    void search_returnsMatchingDocuments() throws Exception {
+        when(documentSearchService.search("Hello")).thenReturn(List.of(document(1L, "HelloWorld.pdf")));
+
+        mockMvc.perform(get("/api/documents/search").param("query", "Hello"))
+                .andExpect(status().isOk())
+                .andExpect(jsonPath("$[0].title").value("HelloWorld.pdf"));
+    }
+
+    @Test
+    void search_withoutQuery_returns400() throws Exception {
+        mockMvc.perform(get("/api/documents/search"))
+                .andExpect(status().isBadRequest());
+    }
+
+    @Test
+    void search_invalidQuery_returns400() throws Exception {
+        when(documentSearchService.search(" "))
+                .thenThrow(new InvalidSearchQueryException("Search query must not be blank or longer than 200 characters"));
+
+        mockMvc.perform(get("/api/documents/search").param("query", " "))
+                .andExpect(status().isBadRequest())
+                .andExpect(jsonPath("$.detail").value(containsString("must not be blank")));
+    }
+
+    @Test
+    void search_elasticsearchNotReachable_returns503() throws Exception {
+        when(documentSearchService.search("Hello"))
+                .thenThrow(new SearchException("Search in Elasticsearch failed", new ConnectException("Connection refused")));
+
+        mockMvc.perform(get("/api/documents/search").param("query", "Hello"))
+                .andExpect(status().isServiceUnavailable())
+                .andExpect(jsonPath("$.detail").value("Search is not available"));
+    }
 
     @Test
     void upload_Returns503_WhenMessagePublishFails() throws Exception {

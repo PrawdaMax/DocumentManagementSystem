@@ -17,6 +17,7 @@ import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
+import at.fhtw.documentmanagementsystem.search.SearchIndex;
 import at.fhtw.documentmanagementsystem.storage.FileStorage;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -53,6 +54,7 @@ public class DocumentServiceImpl implements DocumentService {
     private final DocumentUploadValidator documentUploadValidator;
     private final MessagePublisher messagePublisher;
     private final FileStorage fileStorage;
+    private final SearchIndex searchIndex;
 
     @Override
     public List<DocumentDto> getAll() {
@@ -108,6 +110,7 @@ public class DocumentServiceImpl implements DocumentService {
         if (document.getObjectKey() != null) {
             fileStorage.delete(document.getObjectKey());
         }
+        searchIndex.delete(id);
     }
 
     @Override

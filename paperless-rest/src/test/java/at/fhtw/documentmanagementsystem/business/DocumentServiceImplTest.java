@@ -18,6 +18,7 @@ import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
+import at.fhtw.documentmanagementsystem.search.SearchIndex;
 import at.fhtw.documentmanagementsystem.storage.FileStorage;
 import at.fhtw.documentmanagementsystem.storage.StorageException;
 import org.junit.jupiter.api.Test;
@@ -67,6 +68,9 @@ class DocumentServiceImplTest {
 
     @Mock
     private FileStorage fileStorage;
+
+    @Mock
+    private SearchIndex searchIndex;
 
     @InjectMocks
     private DocumentServiceImpl documentService;
@@ -237,7 +241,7 @@ class DocumentServiceImplTest {
     }
 
     @Test
-    void delete_existingId_deletesDocumentAndFile() {
+    void delete_existingId_deletesDocumentFileAndSearchEntry() {
         DocumentEntity existing = document(1L, "Invoice");
         existing.setObjectKey("a.pdf");
         when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
@@ -246,6 +250,7 @@ class DocumentServiceImplTest {
 
         verify(documentRepository).delete(existing);
         verify(fileStorage).delete("a.pdf");
+        verify(searchIndex).delete(1L);
     }
 
     @Test

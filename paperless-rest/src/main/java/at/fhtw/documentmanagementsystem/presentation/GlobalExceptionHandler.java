@@ -1,9 +1,11 @@
 package at.fhtw.documentmanagementsystem.presentation;
 
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
+import at.fhtw.documentmanagementsystem.business.exception.InvalidSearchQueryException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
+import at.fhtw.documentmanagementsystem.search.SearchException;
 import at.fhtw.documentmanagementsystem.storage.StorageException;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.dao.DataAccessException;
@@ -36,6 +38,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
         return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
     }
 
+    @ExceptionHandler(InvalidSearchQueryException.class)
+    public ProblemDetail handleInvalidSearchQuery(InvalidSearchQueryException exception) {
+        log.warn("Invalid search query: {}", exception.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.BAD_REQUEST, exception.getMessage());
+    }
+
     @ExceptionHandler(InvalidStatusChangeException.class)
     public ProblemDetail handleInvalidStatusChange(InvalidStatusChangeException exception) {
         log.warn("Invalid status change: {}", exception.getMessage());
@@ -52,6 +60,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     public ProblemDetail handleStorageException(StorageException exception) {
         log.error("File storage failed: {}", exception.getMessage(), exception);
         return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "File storage is not available");
+    }
+
+    @ExceptionHandler(SearchException.class)
+    public ProblemDetail handleSearchException(SearchException exception) {
+        log.error("Search failed: {}", exception.getMessage(), exception);
+        return ProblemDetail.forStatusAndDetail(HttpStatus.SERVICE_UNAVAILABLE, "Search is not available");
     }
 
     @ExceptionHandler(DataAccessException.class)

@@ -63,6 +63,7 @@ services:
       DB_HOST: db
       RABBITMQ_HOST: rabbitmq
       RUSTFS_ENDPOINT: http://rustfs:9000
+      ELASTICSEARCH_URL: http://elasticsearch:9200
     ports:
       - "8081:8081"
     depends_on:
