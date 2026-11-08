@@ -25,6 +25,16 @@ export function DocumentPage() {
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
+    // Solange der OCR-Text fehlt, das Dokument alle 5 Sekunden neu laden
+    const ocrPending = doc !== null && (doc.content ?? null) === null;
+    useEffect(() => {
+        if (!ocrPending) return;
+        const interval = setInterval(() => {
+            api.getDocument(id).then(setDoc).catch(err => setError(err.message));
+        }, 5000);
+        return () => clearInterval(interval);
+    }, [id, ocrPending]);
+
     async function updateDocumentTitle(title: string) {
         setDoc(await api.updateDocument(id, { title }));
         setFormOpen(false);
@@ -74,6 +84,21 @@ export function DocumentPage() {
                         <p><b>Size:</b> {formatBytes(doc.fileSize)}</p>
                         <p><b>Status:</b> <StatusBadge status={doc.status} /></p>
                     </div>
+
+                    <section>
+                        <h3 className={HEADING_STYLE}>Extracted Text</h3>
+                        {ocrPending ? (
+                            <p className="text-sm text-slate-500 italic">
+                                Text recognition is still running. This section updates automatically.
+                            </p>
+                        ) : doc.content?.trim() === '' ? (
+                            <p className="text-sm text-slate-500 italic">No text was found in this document.</p>
+                        ) : (
+                            <pre className="max-h-96 overflow-auto rounded-md bg-slate-50 p-3 font-sans text-sm whitespace-pre-wrap">
+                                {doc.content}
+                            </pre>
+                        )}
+                    </section>
 
                     <section>
                         <h3 className={HEADING_STYLE}>Change Status</h3>

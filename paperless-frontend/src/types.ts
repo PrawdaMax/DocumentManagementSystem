@@ -8,6 +8,8 @@ export interface DocumentDto {
     fileSize: number | null;
     uploadedAt: string;
     status: DocumentStatus;
+    // OCR-Text, null (oder fehlend) solange der OCR-Worker noch arbeitet
+    content?: string | null;
 }
 
 export interface DocumentUpdateDto {

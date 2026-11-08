@@ -18,6 +18,7 @@ import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity
 import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepository;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mapstruct.factory.Mappers;
 import org.mockito.ArgumentCaptor;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
@@ -46,10 +47,10 @@ class DocumentServiceImplTest {
     private DocumentRepository documentRepository;
 
     @Spy
-    private DocumentMapper documentMapper = new DocumentMapper();
+    private DocumentMapper documentMapper = Mappers.getMapper(DocumentMapper.class);
 
     @Spy
-    private DocumentHistoryMapper documentHistoryMapper = new DocumentHistoryMapper();
+    private DocumentHistoryMapper documentHistoryMapper = Mappers.getMapper(DocumentHistoryMapper.class);
 
     @Mock
     private DocumentUploadValidator documentUploadValidator;

@@ -14,16 +14,20 @@ export function DashboardPage() {
     const [formOpen, setFormOpen] = useState(false);
     const [error, setError] = useState('');
 
-    // Dokumente einmal beim Öffnen der Seite laden
+    // Ohne Suchbegriff alle Dokumente laden, sonst den REST-Server suchen lassen.
+    // Die Anfrage geht erst 300 ms nach dem letzten Tastendruck raus.
     useEffect(() => {
-        api.getDocuments()
-            .then(setDocuments)
-            .catch(err => setError(err.message));
-    }, []);
-
-    const query = search.toLowerCase();
-    const visibleDocuments = documents.filter(doc =>
-        doc.title.toLowerCase().includes(query) || doc.fileName?.toLowerCase().includes(query));
+        const query = search.trim();
+        const timeout = setTimeout(() => {
+            (query ? api.searchDocuments(query) : api.getDocuments())
+                .then(result => {
+                    setDocuments(result);
+                    setError('');
+                })
+                .catch(err => setError(err.message));
+        }, query ? 300 : 0);
+        return () => clearTimeout(timeout);
+    }, [search]);
 
     async function uploadDocument(title: string, file: File) {
         const created = await api.uploadDocument(title, file);
@@ -39,7 +43,7 @@ export function DashboardPage() {
                         type="search"
                         value={search}
                         onChange={e => setSearch(e.target.value)}
-                        placeholder="Search title or file name..."
+                        placeholder="Search title or text..."
                         className="rounded-md border border-slate-300 px-3 py-1.5 text-sm"
                     />
                     <button onClick={() => setFormOpen(true)} className="rounded-md bg-indigo-600 px-4 py-1.5 text-sm font-semibold text-white">
@@ -50,8 +54,10 @@ export function DashboardPage() {
 
             <Alert text={error} />
 
-            {visibleDocuments.length === 0 ? (
-                <p className="py-8 text-center text-sm text-slate-400">No documents found.</p>
+            {documents.length === 0 ? (
+                <p className="py-8 text-center text-sm text-slate-400">
+                    {search.trim() ? `No documents match "${search.trim()}".` : 'No documents found.'}
+                </p>
             ) : (
                 <table className="w-full text-left text-sm">
                     <thead>
@@ -62,7 +68,7 @@ export function DashboardPage() {
                     </tr>
                     </thead>
                     <tbody className="divide-y divide-slate-100">
-                    {visibleDocuments.map(doc => (
+                    {documents.map(doc => (
                         <tr key={doc.id}>
                             <td className="px-4 py-3">
                                 <Link to={`/documents/${doc.id}`} className="font-semibold hover:text-indigo-600 hover:underline">

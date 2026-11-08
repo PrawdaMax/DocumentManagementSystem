@@ -3,267 +3,200 @@
 Semesterprojekt für SWEN3: ein Dokumentenmanagementsystem zum Archivieren von Dokumenten,
 mit OCR, KI-generierten Zusammenfassungen und Volltextsuche.
 
-**Stand Sprint 2:** REST-Server mit PostgreSQL, Verwaltung von Dokumenten, Dokumentstatus mit Verlauf
-als zusätzlicher Use Case sowie eine Web-UI, die über nginx ausgeliefert wird.
+**Stand Sprint 4:** Upload von PDFs über die Web-UI oder die REST-API und Dokumentstatus mit Verlauf
+(zusätzlicher Use Case). Die PDFs liegen in RustFS. Nach jedem Upload liest der OCR-Worker den Text aus
+dem PDF (Tesseract), der REST-Server speichert ihn, und der Indexing-Worker schreibt ihn nach Elasticsearch.
+Die Web-UI zeigt den erkannten Text an und sucht über den REST-Server im Volltext.
 
-## Projektstruktur
+- Repository: https://github.com/PrawdaMax/DocumentManagementSystem
+- Kanban-Board: https://github.com/users/PrawdaMax/projects/1
 
-| Pfad                    | Beschreibung                                                                  |
-|-------------------------|-------------------------------------------------------------------------------|
-| `paperless-rest/`       | REST-Server (Java 25, Spring Boot 4, JPA)                                     |
-| `paperless-frontend/`   | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                       |
-| `paperless-ocr-worker/` | OCR-Worker (Python 3.14, pika), arbeitet Aufträge aus RabbitMQ ab             |
-| `docker-compose.yml`    | Startet alle Services (Web-UI, REST-Server, PostgreSQL, RabbitMQ, OCR-Worker) |
-| `.env.example`          | Vorlage für die Zugangsdaten in der `.env`                                    |
+## Architektur
 
-Im Container liefert nginx die gebaute Web-UI aus und leitet Anfragen an `/api` an den REST-Server weiter.
-
-Der REST-Server ist in drei Schichten aufgebaut:
-
-| Schicht        | Package        | Inhalt                                          |
-|----------------|----------------|-------------------------------------------------|
-| Presentation   | `presentation` | REST-Controller, Fehlerbehandlung               |
-| Business       | `business`     | Services, DTOs, Mapper, fachliche Exceptions    |
-| Persistence    | `persistence`  | JPA-Entities, Repositories                      |
-
-Die Web-UI (`paperless-frontend/src`) ist so aufgebaut:
-
-| Datei         | Inhalt                                                             |
-|---------------|--------------------------------------------------------------------|
-| `App.tsx`     | Kopfzeile und Routen                                               |
-| `pages/`      | Dashboard und Detailseite: laden Daten und führen Aktionen aus     |
-| `components/` | Wiederverwendbare Teile (Formular, Statuswechsel, Badge, Fehler)   |
-| `api.ts`      | Alle HTTP-Aufrufe an `/api/documents`                              |
-| `types.ts`    | Typen passend zu den DTOs des REST-Servers                         |
-| `status.ts`   | Bezeichnung, Farbe und erlaubte Wechsel je Status                  |
-| `format.ts`   | Anzeige von Dateigröße und Datum                                   |
-
-Der OCR-Worker ist ein eigenständiger Service: eigener Container, kein gemeinsamer Code mit dem REST-Server,
-und er hängt nur von RabbitMQ ab. Aufbau von `paperless-ocr-worker/`:
-
-| Pfad                         | Inhalt                                                    |
-|------------------------------|-----------------------------------------------------------|
-| `src/ocr_worker/worker.py`   | der Worker                                                |
-| `src/ocr_worker/__init__.py` | macht `ocr_worker` zu einem Python-Paket (leer)           |
-| `tests/test_worker.py`       | Unit-Tests                                                |
-| `requirements.txt`           | Bibliothek für den Betrieb (`pika`)                       |
-| `requirements-dev.txt`       | zusätzlich für die Entwicklung (`pytest`, `ruff`)         |
-| `pyproject.toml`             | sagt pytest, dass der Code in `src/` liegt                |
-
-In `worker.py`:
-
-- `main()` verbindet sich über `RABBITMQ_URL` mit RabbitMQ und wartet auf Nachrichten in der `ocr-queue`.
-- `on_message()` liest das JSON, loggt den Auftrag und bestätigt die Nachricht (`ack`).
-  Eine fehlerhafte Nachricht wird geloggt und verworfen (`nack` ohne Requeue).
-
-Der Aufbau folgt dem offiziellen RabbitMQ-Tutorial „Work Queues" für Python (Bibliothek `pika`).
-Die OCR selbst kommt in Sprint 4.
-
-## Voraussetzungen
-
-- Docker Desktop
-- JDK 25, Node.js 24 und Python 3.14 (nur für die lokale Entwicklung ohne Docker)
-
-## Konfiguration
-
-Zugangsdaten stehen nicht im Code, sondern in einer `.env`-Datei im Projekt-Root.
-Die `.env` wird nicht committed, als Vorlage dient `.env.example`:
-
-```bash
-cp .env.example .env
+```mermaid
+flowchart LR
+    browser([Browser]) -->|HTTP, Port 80| frontend["frontend<br/>nginx + Web-UI"]
+    frontend -->|/api| rest["rest<br/>REST-Server, Port 8081"]
+    rest -->|JPA| db[("db<br/>PostgreSQL")]
+    rest -->|PDF speichern| rustfs[("rustfs<br/>Objektspeicher")]
+    rest -->|Suche| es[("elasticsearch")]
+    rest --> ocrQueue[["ocr-queue"]]
+    ocrQueue --> ocr["ocr-worker<br/>Python, Tesseract"]
+    ocr -->|PDF laden| rustfs
+    ocr --> resultQueue[["ocr-result-queue"]]
+    resultQueue --> rest
+    rest --> indexQueue[["index-queue"]]
+    indexQueue --> indexing["indexing-worker<br/>Python"]
+    indexing -->|indexieren| es
+    kibana["kibana"] --> es
 ```
 
-| Variable                | Beschreibung                      |
-|-------------------------|-----------------------------------|
-| `POSTGRES_DB`           | Name der Datenbank                |
-| `POSTGRES_USER`         | Datenbank-Benutzer                |
-| `POSTGRES_PASSWORD`     | Passwort des Datenbank-Benutzers  |
-| `RABBITMQ_DEFAULT_USER` | RabbitMQ-Benutzer                 |
-| `RABBITMQ_DEFAULT_PASS` | Passwort des RabbitMQ-Benutzers   |
+| Ordner                       | Inhalt                                                                         |
+|------------------------------|--------------------------------------------------------------------------------|
+| `paperless-rest/`            | REST-Server (Java 25, Spring Boot 4, JPA, MapStruct)                           |
+| `paperless-frontend/`        | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                        |
+| `paperless-ocr-worker/`      | OCR-Worker (Python 3.14, pika, minio, pdf2image/Poppler, pytesseract)          |
+| `paperless-indexing-worker/` | Indexing-Worker (Python 3.14, pika, elasticsearch)                             |
 
-`docker compose` übergibt die Werte an die Datenbank, RabbitMQ, den REST-Server und den OCR-Worker.
-Der lokal gestartete REST-Server liest dieselbe `.env` (`spring.config.import` in `application.properties`).
+Die beiden Worker teilen keinen Code mit dem REST-Server und auch nicht untereinander.
 
-Hinweis: PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
-müssen die Volumes mit `docker compose down -v` gelöscht werden.
+Der REST-Server hat vier Schichten, jede ist ein Package: `presentation` (Controller, Fehlerbehandlung),
+`business` (Service, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories)
+und `messaging` (Versand und Empfang der Nachrichten über RabbitMQ).
 
-## Mit Docker starten
+## Starten
 
 ```bash
+cp .env.example .env        # Zugangsdaten für PostgreSQL, RabbitMQ und RustFS
 docker compose up --build
 ```
 
-- Web-UI: http://localhost (Dashboard) und http://localhost/documents/{id} (Detailseite)
-- REST-Server: http://localhost:8081
-- PostgreSQL: `localhost:5432` (Zugangsdaten aus der `.env`)
-- RabbitMQ: `localhost:5672` (AMQP) und die Management-UI unter http://localhost:15672
-  (Login mit `RABBITMQ_DEFAULT_USER` und `RABBITMQ_DEFAULT_PASS` aus der `.env`)
-- OCR-Worker: Logs mit `docker compose logs -f ocr-worker`
+| Dienst              | Adresse                                | Login                                                 |
+|---------------------|----------------------------------------|-------------------------------------------------------|
+| Web-UI              | http://localhost                       | –                                                     |
+| REST-API            | http://localhost:8081/api/documents    | –                                                     |
+| RabbitMQ-Management | http://localhost:15672                 | `RABBITMQ_DEFAULT_USER` / `RABBITMQ_DEFAULT_PASS`     |
+| RustFS-Konsole      | http://localhost:9001                  | `RUSTFS_ACCESS_KEY` / `RUSTFS_SECRET_KEY`             |
+| Elasticsearch       | http://localhost:9200                  | – (Security ist für die Entwicklung abgeschaltet)     |
+| Kibana              | http://localhost:5601                  | –                                                     |
 
-Beenden mit `docker compose down` (mit `-v` werden zusätzlich die Daten von PostgreSQL und RabbitMQ gelöscht).
+Der REST-Server wartet beim Start auf PostgreSQL, RabbitMQ und RustFS, nicht auf Elasticsearch: Upload und
+Anzeige funktionieren also schon, während Elasticsearch noch hochfährt. Elasticsearch braucht etwa 1 GB RAM
+und kann eine Minute zum Starten brauchen.
 
-### OCR-Worker von Hand testen
+PostgreSQL, RabbitMQ und RustFS übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
+die Volumes mit `docker compose down -v` löschen.
 
-Ohne REST-Server lässt sich der Worker testen, indem man eine Nachricht direkt in seine Queue legt:
+## Tests und CI
 
-1. In der Management-UI (http://localhost:15672) unter „Queues and Streams" die `ocr-queue` öffnen.
-2. Unter „Publish message" die Property `content_type` = `application/json` setzen und als Payload
-   `{"documentId": 1, "fileName": "HelloWorld.pdf"}` schicken.
-3. `docker compose logs -f ocr-worker` zeigt `Received OCR job for document 1 (HelloWorld.pdf)`.
+**Teststrategie:**
 
-Eine fehlerhafte Nachricht (z. B. Payload `hello`) erzeugt eine ERROR-Zeile und wird verworfen,
-der Worker läuft weiter. Ist RabbitMQ nicht erreichbar, beendet sich der Worker und Docker startet ihn neu.
+- **REST-Server:** Unit-Tests pro Schicht (JUnit 5, Mockito, MockMvc), die Mapper werden direkt getestet.
+- **Worker:** Unit-Tests mit pytest. RabbitMQ, RustFS und Elasticsearch werden gemockt, getestet werden die
+  Verarbeitung einer Nachricht, die gesendete Antwort und das Verwerfen fehlerhafter Nachrichten.
+- **Echter OCR-Test** (`paperless-ocr-worker/tests/test_ocr.py`): erzeugt ein PDF mit bekanntem Text und lässt
+  Poppler und Tesseract ohne Mocks darüber laufen. Lokal wird er übersprungen, wenn die Programme fehlen,
+  in der CI läuft er immer.
+- **Web-UI:** hat kaum eigene Logik und wird über Linter und Typprüfung abgesichert.
 
-## Lokale Entwicklung
+Gemockt wird nur an den Systemgrenzen, die Unit-Tests brauchen also keine laufenden Dienste. Das Zusammenspiel
+aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
-Nur die Datenbank in Docker starten und den REST-Server aus der IDE oder mit Maven ausführen
-(Arbeitsverzeichnis `paperless-rest`, damit die `.env` gefunden wird):
-
-```bash
-docker compose up -d db
-cd paperless-rest
-./mvnw spring-boot:run
-```
-
-Hinweis: Der REST-Server im Container und die lokal gestartete Anwendung verwenden beide Port 8081,
-es kann also immer nur einer der beiden laufen.
-
-Die Web-UI lokal mit dem Vite-Dev-Server starten (leitet `/api` an `localhost:8081` weiter):
-
-```bash
-cd paperless-frontend
-npm install
-npm run dev
-```
-
-Die Web-UI ist dann unter http://localhost erreichbar.
-
-Hinweis: Der Vite-Dev-Server und das Frontend im Container verwenden beide Port 80,
-der `frontend`-Container darf dabei also nicht laufen.
-
-Den OCR-Worker lokal starten (verbindet sich mit dem RabbitMQ aus Docker,
-Benutzer und Passwort in der URL wie in der `.env`):
-
-```bash
-docker compose up -d rabbitmq
-docker compose stop ocr-worker          # sonst teilen sich beide Worker die Aufträge
-cd paperless-ocr-worker
-python3.14 -m venv .venv
-source .venv/bin/activate
-pip install -r requirements-dev.txt
-cd src
-RABBITMQ_URL=amqp://paperless:change-me@localhost python -m ocr_worker.worker
-```
-
-## Build und Tests
-
-```bash
-cd paperless-rest
-./mvnw clean verify
-```
-
-Die Unit-Tests benötigen keine Datenbank, das Repository wird mit Mockito gemockt.
-
-Web-UI prüfen und bauen:
-
-```bash
-cd paperless-frontend
-npm run lint    # Linter (oxlint)
-npm run build   # Typprüfung und Build nach dist/
-```
-
-OCR-Worker prüfen (in der aktivierten `.venv`, siehe „Lokale Entwicklung"):
-
-```bash
-cd paperless-ocr-worker
-python -m pytest   # Unit-Tests, RabbitMQ wird gemockt
-ruff check .       # Linter
-```
+**CI:** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push vier Jobs aus: REST-Server, OCR-Worker
+(installiert dafür `tesseract-ocr`, `tesseract-ocr-deu` und `poppler-utils`), Indexing-Worker und Web-UI.
 
 ## REST-API
 
-| Methode | Pfad                          | Beschreibung                                   | Antwort              |
-|---------|-------------------------------|------------------------------------------------|----------------------|
-| GET     | `/api/documents`              | Alle Dokumente                                 | 200                  |
-| GET     | `/api/documents/{id}`         | Ein Dokument                                   | 200, 404             |
-| POST    | `/api/documents`              | PDF hochladen (Status wird `RECEIVED`)         | 201, 400, 413, 503   |
-| PUT     | `/api/documents/{id}`         | Dokumenttitel ändern                           | 200, 400, 404        |
-| DELETE  | `/api/documents/{id}`         | Dokument samt Verlauf löschen                  | 204, 404             |
-| PATCH   | `/api/documents/{id}/status`  | Status ändern                                  | 200, 400, 404, 409   |
-| GET     | `/api/documents/{id}/history` | Statusverlauf (neuester Eintrag zuerst)        | 200, 404             |
+| Methode | Pfad                                   | Beschreibung                             | Antwort            |
+|---------|----------------------------------------|------------------------------------------|--------------------|
+| GET     | `/api/documents`                       | Alle Dokumente                           | 200                |
+| GET     | `/api/documents/search?query={text}`   | Volltextsuche in Titel und OCR-Text      | 200                |
+| GET     | `/api/documents/{id}`                  | Ein Dokument                             | 200, 404           |
+| POST    | `/api/documents`                       | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
+| PUT     | `/api/documents/{id}`                  | Titel ändern                             | 200, 400, 404      |
+| DELETE  | `/api/documents/{id}`                  | Dokument samt Verlauf löschen            | 204, 404           |
+| PATCH   | `/api/documents/{id}/status`           | Status ändern                            | 200, 400, 404, 409 |
+| GET     | `/api/documents/{id}/history`          | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
 
-Beim Upload ist `file` Pflicht (nur PDF, max. 20 MB, sonst `413`) und `title` optional (sonst der Dateiname).
+Ein Dokument enthält das Feld `content` mit dem OCR-Text. Es ist `null`, solange die OCR noch läuft.
 
-Fehler werden als Problem Details (RFC 9457) im JSON-Format zurückgegeben.
-Bei ungültigen Eingaben (400) nennt `detail` die betroffenen Felder oder Ursachen (z. B. fehlende PDF-Magic-Bytes).
-Kann nach dem Speichern eines Dokumentes die Benachrichtigung an RabbitMQ nicht zugestellt werden, wird ein `503 Service Unavailable` zurückgegeben.
-Die Web-UI prüft die Eingaben schon im Formular (Validierung des Browsers), dort sind alle Felder Pflichtfelder.
+Jeder Statuswechsel wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
+Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
 
-### Dokumentstatus
-
-Jede Statusänderung wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
-Nicht erlaubte Änderungen werden mit `409 Conflict` abgelehnt.
-
-| Status      | Bedeutung                       | Erlaubte Änderungen      |
-|-------------|---------------------------------|--------------------------|
-| `RECEIVED`  | Eingegangen (beim Anlegen)      | `IN_REVIEW`, `REJECTED`  |
-| `IN_REVIEW` | Wird geprüft                    | `DONE`, `REJECTED`       |
-| `DONE`      | Erledigt                        | `ARCHIVED`               |
-| `REJECTED`  | Abgelehnt                       | `IN_REVIEW`              |
-| `ARCHIVED`  | Abgeschlossen (Endzustand)      | –                        |
-
-### Beispiele
-
-```bash
-# PDF-Dokument hochladen (Multipart Form-Data)
-curl -X POST http://localhost:8081/api/documents \
-  -F "file=@/pfad/zur/rechnung.pdf" \
-  -F "title=Rechnung März"     # optional, sonst wird der Dateiname verwendet
-
-# Dokumenttitel ändern
-curl -X PUT http://localhost:8081/api/documents/1 \
-  -H "Content-Type: application/json" \
-  -d '{"title": "Rechnung März (korrigiert)"}'
-
-# Status ändern
-curl -X PATCH http://localhost:8081/api/documents/1/status \
-  -H "Content-Type: application/json" \
-  -d '{"status": "IN_REVIEW", "comment": "Prüfung gestartet"}'
-
-# Verlauf anzeigen
-curl http://localhost:8081/api/documents/1/history
-```
+| Status                       | Erlaubte Wechsel        |
+|------------------------------|-------------------------|
+| `RECEIVED` (nach dem Upload) | `IN_REVIEW`, `REJECTED` |
+| `IN_REVIEW`                  | `DONE`, `REJECTED`      |
+| `REJECTED`                   | `IN_REVIEW`             |
+| `DONE`                       | `ARCHIVED`              |
+| `ARCHIVED`                   | – (Endzustand)          |
 
 ## Nachrichten (RabbitMQ)
 
-Nach dem erfolgreichen Hochladen und Speichern eines Dokuments sendet der REST-Server eine Nachricht an den RabbitMQ-Broker, um nachgelagerte Services (z. B. den OCR-Dienst) zu benachrichtigen.
+REST-Server und Worker teilen keinen Code. Der Vertrag zwischen ihnen sind diese JSON-Nachrichten in durable
+Queues. Die PDFs liegen in RustFS im Bucket `documents`.
 
-- **Queue**: `ocr-queue`
-- **Format**: JSON (`JacksonJsonMessageConverter`), der OCR-Worker liest `documentId` und `fileName`
-- **Nachrichtenvertrag (`OcrMessage`)**:
-  ```json
-  {
-    "documentId": 1,
-    "title": "Rechnung",
-    "fileName": "rechnung.pdf"
-  }
-  ```
+| Queue              | Von → An                 | Nachricht                                                                                     |
+|--------------------|--------------------------|-----------------------------------------------------------------------------------------------|
+| `ocr-queue`        | REST → OCR-Worker        | `{"documentId": 1, "title": "Rechnung", "fileName": "rechnung.pdf", "objectKey": "1/rechnung.pdf"}` |
+| `ocr-result-queue` | OCR-Worker → REST        | `{"documentId": 1, "content": "Erkannter Text ..."}`                                          |
+| `index-queue`      | REST → Indexing-Worker   | `{"documentId": 1, "title": "Rechnung", "fileName": "rechnung.pdf", "content": "Erkannter Text ..."}` |
 
-### RabbitMQ-Konfiguration
+Ablauf beim Upload:
 
-In den `application.properties` bzw. über Umgebungsvariablen gesteuert:
-- `spring.rabbitmq.host` (Standard: `localhost`, in Docker `rabbitmq`)
-- `spring.rabbitmq.port` (Standard: `5672`)
-- `spring.rabbitmq.username` (aus `RABBITMQ_DEFAULT_USER` in der `.env`)
-- `spring.rabbitmq.password` (aus `RABBITMQ_DEFAULT_PASS` in der `.env`)
+1. Der REST-Server prüft die Datei (Endung `.pdf` und Magic Bytes `%PDF-`), speichert das Dokument mit Status
+   `RECEIVED` und legt das PDF unter `objectKey` in RustFS ab.
+2. Er schickt den Auftrag in die `ocr-queue`. Ist RabbitMQ nicht erreichbar, wird das Speichern
+   zurückgerollt, und der Client bekommt `503`.
+3. Der OCR-Worker lädt das PDF aus RustFS, wandelt jede Seite mit Poppler in ein Bild (300 dpi) und liest den
+   Text mit Tesseract (Deutsch und Englisch). Das Ergebnis schickt er in die `ocr-result-queue`.
+4. Der REST-Server speichert den Text im Feld `content` und schickt das Dokument in die `index-queue`.
+5. Der Indexing-Worker schreibt es in den Elasticsearch-Index `documents`, die Dokument-ID ist auch die
+   Elasticsearch-ID.
+6. Die Suche der Web-UI fragt den REST-Server, der in Elasticsearch sucht.
 
-Sollte die Übertragung an den Broker fehlschlagen, wird eine `MessagePublishException` ausgelöst und vom Global Exception Handler auf `503 Service Unavailable` gemappt.
+Beide Worker bestätigen eine verarbeitete Nachricht mit `ack`. Schlägt die Verarbeitung fehl (ungültiges JSON,
+fehlendes Feld, PDF nicht in RustFS, Elasticsearch-Fehler), loggen sie den Fehler als ERROR und verwerfen die
+Nachricht (`nack` ohne Requeue). Verlieren sie die Verbindung zu RabbitMQ, startet Docker sie neu.
 
-## Fehlerbehandlung und Logging
+## Validierung, Fehlerbehandlung und Logging
 
-- **Fachliche Exceptions**: Alle fachlichen Ausnahmen im Business-Layer erben von der abstrakten Klasse `BusinessException` (`ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException`, `MessagePublishException`).
-- **Zentrale Fehlerbehandlung**: Der `GlobalExceptionHandler` wandelt auftretende Exceptions in strukturierte Antworten im RFC 9457 Format (`ProblemDetail`) um.
-- **Logging-Strategie**:
-  - **4xx-Fehler (Client-Fehler)**: Werden als `WARN` geloggt (z. B. nicht gefundene Ressourcen `404`, ungültige Dokumente oder Parameter `400`, unzulässige Statusübergänge `409`).
-  - **5xx-Fehler (Server-Fehler)**: Werden als `ERROR` samt Stacktrace geloggt (z. B. RabbitMQ-Fehler `503`, Datenbankfehler `DataAccessException` `500` sowie unerwartete Exceptions `500`).
-- **Ablauf-Logging**: Wichtige Business- und Messaging-Operationen (`DocumentServiceImpl`, `RabbitOcrMessagePublisher`) protokollieren ihren Verlauf auf `INFO`-Ebene.
+Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean Validation) und im Service
+(PDF-Prüfung, erlaubte Statuswechsel). Jede Schicht hat eigene Exceptions, nur der `GlobalExceptionHandler`
+übersetzt sie in HTTP-Antworten:
+
+| Schicht      | Exception                                                                               | Antwort       |
+|--------------|-----------------------------------------------------------------------------------------|---------------|
+| Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
+| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidStatusChangeException` | 404, 400, 409 |
+| Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
+| Presentation | Fallback für alles Unerwartete                                                          | 500           |
+
+Geloggt wird auf `INFO` für Abläufe (Upload, Statuswechsel, gesendete und empfangene Nachrichten), auf `WARN`
+für Client-Fehler wie 400, 404 und 409 und auf `ERROR` mit Stacktrace für Server-Fehler.
+Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw. `docker compose logs indexing-worker`.
+
+## Design-Entscheidungen
+
+- **Interfaces an den Systemgrenzen** (`DocumentRepository`, `OcrMessagePublisher`): Der Service kennt nur
+  die Interfaces und lässt sich mit Mocks testen. Die Worker bekommen den Speicher- bzw. Elasticsearch-Client
+  im Konstruktor übergeben, damit die Tests ihn ersetzen können.
+- **MapStruct statt handgeschriebener Mapper:** Die Mapper sind nur noch Interfaces, MapStruct erzeugt den Code
+  beim Kompilieren. Vergessene Felder fallen dadurch als Warnung im Build auf.
+- **`MultipartFile` bleibt im Controller:** Die Business-Schicht bekommt ein `DocumentUploadDto` und bleibt
+  unabhängig von HTTP.
+- **Senden in der Transaktion:** Es gibt kein gespeichertes Dokument ohne OCR-Auftrag.
+- **PDFs in RustFS, nicht in der Nachricht:** Die Nachricht enthält nur den `objectKey`, so bleiben die
+  Nachrichten klein, und auch große PDFs passen durch RabbitMQ. RustFS ist S3-kompatibel, deshalb reicht im
+  Worker der `minio`-Client.
+- **Worker in Python:** Die Worker sollen unabhängig voneinander laufen. Python hat gute Bibliotheken für
+  Tesseract, Elasticsearch und Gemini.
+- **Der REST-Server verteilt die Aufträge:** Die Worker kennen nur ihre Queues, nicht einander. Fällt einer aus,
+  warten seine Aufträge in der Queue. Der REST-Server bleibt die einzige Stelle, die in die Datenbank schreibt.
+- **Eigener Indexing-Worker:** Das Indexieren ist vom OCR getrennt. So kann man den Index neu aufbauen oder
+  Elasticsearch austauschen, ohne die OCR anzufassen.
+- **Dokument-ID als Elasticsearch-ID:** Wird ein Dokument erneut indexiert, überschreibt es den alten Eintrag,
+  statt einen zweiten anzulegen.
+- **Suche über den REST-Server:** Die Web-UI spricht nie direkt mit Elasticsearch. Elasticsearch bleibt intern,
+  und die Suche ist Teil der REST-API.
+
+## Bekannte Grenzen
+
+- **Verlorene Aufträge bei Ausfällen:** Ist RustFS oder Elasticsearch gerade nicht erreichbar, verwirft der
+  Worker die Nachricht. Es gibt noch keine Dead-Letter-Queue und keine Wiederholung, das Dokument bleibt dann
+  ohne Text bzw. ohne Suchindex.
+- **Lange OCR blockiert den Worker:** Der OCR-Worker bearbeitet einen Auftrag nach dem anderen (`prefetch_count=1`).
+  Der RabbitMQ-Heartbeat ist auf 10 Minuten gestellt, damit große PDFs die Verbindung nicht abreißen lassen.
+- **OCR-Qualität:** Tesseract liest gedruckten Text in Deutsch und Englisch gut, Handschrift, schiefe Scans und
+  Tabellen schlecht. Eingebetteter Text in digitalen PDFs wird nicht direkt übernommen, sondern auch per OCR gelesen.
+- **Löschen:** Beim Löschen eines Dokuments bleiben das PDF in RustFS und der Eintrag in Elasticsearch erhalten.
+- **Keine Sicherheit in der Entwicklungsumgebung:** Elasticsearch und Kibana laufen ohne Login, die Zugangsdaten
+  stehen im Klartext in der `.env`.
+- **Suche erst nach dem Indexieren:** Ein frisch hochgeladenes Dokument wird erst gefunden, wenn OCR und
+  Indexierung fertig sind.
+
+## Lessons Learned
+
+- Schnittstellen vorher gemeinsam festlegen
+- Merges prüfen: Ein Konflikt hat alte README-Abschnitte zurückgebracht
+- Pull Requests und CI früh nutzen, statt lokal zu mergen.

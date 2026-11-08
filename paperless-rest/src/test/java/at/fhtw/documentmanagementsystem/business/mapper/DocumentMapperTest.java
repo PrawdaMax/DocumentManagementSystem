@@ -4,15 +4,17 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
 import org.junit.jupiter.api.Test;
+import org.mapstruct.factory.Mappers;
 
 import java.nio.charset.StandardCharsets;
 import java.time.Instant;
+import java.util.List;
 
 import static org.assertj.core.api.Assertions.assertThat;
 
 class DocumentMapperTest {
 
-    private final DocumentMapper documentMapper = new DocumentMapper();
+    private final DocumentMapper documentMapper = Mappers.getMapper(DocumentMapper.class);
 
     @Test
     void mapToDto_copiesAllFields() {
@@ -65,5 +67,31 @@ class DocumentMapperTest {
         DocumentEntity entity = documentMapper.mapToEntity(uploadDto);
 
         assertThat(entity.getTitle()).isEqualTo("invoice.pdf");
+    }
+
+    @Test
+    void mapToDto_null_returnsNull() {
+        assertThat(documentMapper.mapToDto((DocumentEntity) null)).isNull();
+    }
+
+    @Test
+    void mapToDto_list_mapsEveryEntity() {
+        List<DocumentEntity> entities = List.of(
+                DocumentEntity.builder().id(1L).title("A").build(),
+                DocumentEntity.builder().id(2L).title("B").build());
+
+        List<DocumentDto> dtos = documentMapper.mapToDto(entities);
+
+        assertThat(dtos).extracting(DocumentDto::getTitle).containsExactly("A", "B");
+    }
+
+    @Test
+    void mapToEntity_startsWithEmptyHistory() {
+        DocumentUploadDto uploadDto = DocumentUploadDto.builder()
+                .fileName("invoice.pdf")
+                .content("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
+                .build();
+
+        assertThat(documentMapper.mapToEntity(uploadDto).getHistory()).isEmpty();
     }
 }
