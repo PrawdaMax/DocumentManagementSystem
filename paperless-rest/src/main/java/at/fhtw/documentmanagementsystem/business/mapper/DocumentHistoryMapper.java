@@ -2,18 +2,15 @@ package at.fhtw.documentmanagementsystem.business.mapper;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentHistoryEntity;
-import org.springframework.stereotype.Component;
+import org.mapstruct.Mapper;
 
-@Component
-public class DocumentHistoryMapper extends AbstractMapper<DocumentHistoryEntity, DocumentHistoryDto> {
+import java.util.Collection;
+import java.util.List;
 
-    @Override
-    public DocumentHistoryDto mapToDto(DocumentHistoryEntity entity) {
-        return DocumentHistoryDto.builder()
-                .id(entity.getId())
-                .status(entity.getStatus())
-                .changedAt(entity.getChangedAt())
-                .comment(entity.getComment())
-                .build();
-    }
+@Mapper(componentModel = "spring")
+public interface DocumentHistoryMapper {
+
+    DocumentHistoryDto mapToDto(DocumentHistoryEntity entity);
+
+    List<DocumentHistoryDto> mapToDto(Collection<DocumentHistoryEntity> entities);
 }

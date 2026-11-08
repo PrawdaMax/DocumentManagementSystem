@@ -27,18 +27,67 @@ services:
       timeout: 5s
       retries: 10
 
+  rustfs:
+    image: rustfs/rustfs:1.0.4
+    env_file: .env      # RUSTFS_ACCESS_KEY, RUSTFS_SECRET_KEY
+    environment:
+      RUSTFS_VOLUMES: /data
+      RUSTFS_ADDRESS: 0.0.0.0:9000
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ENABLE: "true"
+    ports:
+      - "9000:9000"     # S3-API
+      - "9001:9001"     # Web-Konsole
+    volumes:
+      - rustfs-data:/data
+    healthcheck:
+      test: ["CMD", "curl", "-fsS", "http://localhost:9000/health"]
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+  elasticsearch:
+    image: elasticsearch:9.5.5
+    environment:
+      discovery.type: single-node
+      xpack.security.enabled: "false"
+      ES_JAVA_OPTS: -Xms512m -Xmx512m
+    ports:
+      - "9200:9200"
+    volumes:
+      - elasticsearch-data:/usr/share/elasticsearch/data
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fs http://localhost:9200/_cluster/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  kibana:
+    image: kibana:9.5.5
+    environment:
+      ELASTICSEARCH_HOSTS: http://elasticsearch:9200
+    ports:
+      - "5601:5601"
+    depends_on:
+      elasticsearch:
+        condition: service_healthy
+
   rest:
     build: ./paperless-rest
     env_file: .env
     environment:
       DB_HOST: db
       RABBITMQ_HOST: rabbitmq
+      RUSTFS_ENDPOINT: http://rustfs:9000
+      ELASTICSEARCH_URL: http://elasticsearch:9200
     ports:
       - "8081:8081"
     depends_on:
       db:
         condition: service_healthy
       rabbitmq:
+        condition: service_healthy
+      rustfs:
         condition: service_healthy
 
   frontend:
@@ -52,8 +101,26 @@ services:
     build: ./paperless-ocr-worker
     environment:
       RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq
+      RUSTFS_ENDPOINT: rustfs:9000
+      RUSTFS_ACCESS_KEY: ${RUSTFS_ACCESS_KEY}
+      RUSTFS_SECRET_KEY: ${RUSTFS_SECRET_KEY}
     depends_on:
       rabbitmq:
+        condition: service_healthy
+      rustfs:
+        condition: service_healthy
+    init: true
+    restart: unless-stopped
+
+  indexing-worker:
+    build: ./paperless-indexing-worker
+    environment:
+      RABBITMQ_URL: amqp://${RABBITMQ_DEFAULT_USER}:${RABBITMQ_DEFAULT_PASS}@rabbitmq
+      ELASTICSEARCH_URL: http://elasticsearch:9200
+    depends_on:
+      rabbitmq:
+        condition: service_healthy
+      elasticsearch:
         condition: service_healthy
     init: true
     restart: unless-stopped
@@ -61,3 +128,5 @@ services:
 volumes:
   pgdata:
   rabbitmq-data:
+  rustfs-data:
+  elasticsearch-data:
