@@ -3,37 +3,25 @@ package at.fhtw.documentmanagementsystem.business.mapper;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.persistence.entity.DocumentEntity;
-import org.springframework.stereotype.Component;
+import org.mapstruct.Mapper;
+import org.mapstruct.Mapping;
 
-@Component
-public class DocumentMapper extends AbstractMapper<DocumentEntity, DocumentDto> {
+import java.util.Collection;
+import java.util.List;
 
-    @Override
-    public DocumentDto mapToDto(DocumentEntity entity) {
-        if (entity == null) {
-            return null;
-        }
-        return DocumentDto.builder()
-                .id(entity.getId())
-                .title(entity.getTitle())
-                .fileName(entity.getFileName())
-                .contentType(entity.getContentType())
-                .fileSize(entity.getFileSize())
-                .uploadedAt(entity.getUploadedAt())
-                .status(entity.getStatus())
-                .content(entity.getContent())
-                .build();
-    }
+@Mapper(componentModel = "spring")
+public interface DocumentMapper {
 
-    public DocumentEntity mapToEntity(DocumentUploadDto uploadDto) {
-        if (uploadDto == null) {
-            return null;
-        }
-        return DocumentEntity.builder()
-                .title(uploadDto.titleOrFileName())
-                .fileName(uploadDto.getFileName())
-                .contentType("application/pdf")
-                .fileSize(uploadDto.getFileContent() != null ? (long) uploadDto.getFileContent().length : 0L)
-                .build();
-    }
+    DocumentDto mapToDto(DocumentEntity entity);
+
+    List<DocumentDto> mapToDto(Collection<DocumentEntity> entities);
+
+    @Mapping(target = "id", ignore = true)
+    @Mapping(target = "uploadedAt", ignore = true)
+    @Mapping(target = "status", ignore = true)
+    @Mapping(target = "history", ignore = true)
+    @Mapping(target = "title", expression = "java(uploadDto.titleOrFileName())")
+    @Mapping(target = "contentType", constant = "application/pdf")
+    @Mapping(target = "fileSize", expression = "java(uploadDto.getContent() != null ? (long) uploadDto.getContent().length : 0L)")
+    DocumentEntity mapToEntity(DocumentUploadDto uploadDto);
 }
