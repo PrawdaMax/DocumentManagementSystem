@@ -73,6 +73,14 @@ export function DocumentPage() {
                             <p className="text-xs text-slate-400">Uploaded at {formatDate(doc.uploadedAt)}</p>
                         </div>
                         <div className="space-x-2 text-sm">
+                            <a
+                                href={api.documentFileUrl(id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block rounded-md border border-slate-300 px-3 py-1.5 font-semibold"
+                            >
+                                Open PDF
+                            </a>
                             <button onClick={() => setFormOpen(true)} className="rounded-md border border-slate-300 px-3 py-1.5 font-semibold">Edit</button>
                             <button onClick={deleteDocument} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white">Delete</button>
                         </div>

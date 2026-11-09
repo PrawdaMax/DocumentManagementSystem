@@ -1,6 +1,8 @@
 package at.fhtw.documentmanagementsystem.storage;
 
 import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
+import io.minio.GetObjectResponse;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -18,6 +20,7 @@ import java.net.UnknownHostException;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
@@ -92,5 +95,28 @@ class S3FileStorageTest {
         verify(client).removeObject(captor.capture());
         assertThat(captor.getValue().bucket()).isEqualTo("documents");
         assertThat(captor.getValue().object()).isEqualTo("a.pdf");
+    }
+
+    @Test
+    void load_returnsFileContent() throws Exception {
+        GetObjectResponse response = mock(GetObjectResponse.class);
+        when(response.readAllBytes()).thenReturn(new byte[]{1, 2, 3});
+        when(client.getObject(any(GetObjectArgs.class))).thenReturn(response);
+
+        assertThat(storage.load("a.pdf")).containsExactly(1, 2, 3);
+
+        ArgumentCaptor<GetObjectArgs> captor = ArgumentCaptor.forClass(GetObjectArgs.class);
+        verify(client).getObject(captor.capture());
+        assertThat(captor.getValue().bucket()).isEqualTo("documents");
+        assertThat(captor.getValue().object()).isEqualTo("a.pdf");
+    }
+
+    @Test
+    void load_fileMissing_throwsStorageException() throws Exception {
+        when(client.getObject(any(GetObjectArgs.class))).thenThrow(new MinioException("NoSuchKey"));
+
+        assertThatThrownBy(() -> storage.load("a.pdf"))
+                .isInstanceOf(StorageException.class)
+                .hasMessageContaining("a.pdf");
     }
 }

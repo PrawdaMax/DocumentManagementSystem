@@ -3,12 +3,15 @@ package at.fhtw.documentmanagementsystem.presentation;
 import at.fhtw.documentmanagementsystem.business.DocumentSearchService;
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
+import org.springframework.http.ContentDisposition;
+import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
 import org.springframework.http.MediaType;
 import org.springframework.http.ResponseEntity;
@@ -27,6 +30,7 @@ import org.springframework.web.multipart.MultipartFile;
 
 import java.io.IOException;
 import java.net.URI;
+import java.nio.charset.StandardCharsets;
 import java.util.List;
 
 @RestController
@@ -50,6 +54,16 @@ public class DocumentController {
     @GetMapping("/{id}")
     public DocumentDto getById(@PathVariable Long id) {
         return documentService.getById(id);
+    }
+
+    @GetMapping("/{id}/file")
+    public ResponseEntity<byte[]> getFile(@PathVariable Long id) {
+        DocumentFileDto file = documentService.getFile(id);
+        return ResponseEntity.ok()
+                .contentType(MediaType.APPLICATION_PDF)
+                .header(HttpHeaders.CONTENT_DISPOSITION,
+                        ContentDisposition.inline().filename(file.fileName(), StandardCharsets.UTF_8).build().toString())
+                .body(file.content());
     }
 
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)

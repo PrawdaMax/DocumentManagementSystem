@@ -38,6 +38,10 @@ export function getDocument(id: number) {
     return request<DocumentDto>(`/${id}`);
 }
 
+export function documentFileUrl(id: number) {
+    return `/api/documents/${id}/file`;
+}
+
 export function uploadDocument(title: string, file: File) {
     const formData = new FormData();
     formData.append('title', title);

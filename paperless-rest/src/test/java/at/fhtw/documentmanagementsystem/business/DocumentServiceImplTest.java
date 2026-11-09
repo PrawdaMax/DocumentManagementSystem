@@ -1,6 +1,7 @@
 package at.fhtw.documentmanagementsystem.business;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
@@ -141,6 +142,30 @@ class DocumentServiceImplTest {
         assertThatThrownBy(() -> documentService.getById(99L))
                 .isInstanceOf(ResourceNotFoundException.class)
                 .hasMessageContaining("99");
+    }
+
+    @Test
+    void getFile_documentWithFile_returnsFileNameAndContent() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setFileName("invoice.pdf");
+        existing.setObjectKey("a.pdf");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(fileStorage.load("a.pdf")).thenReturn(new byte[]{1, 2, 3});
+
+        DocumentFileDto file = documentService.getFile(1L);
+
+        assertThat(file.fileName()).isEqualTo("invoice.pdf");
+        assertThat(file.content()).containsExactly(1, 2, 3);
+    }
+
+    @Test
+    void getFile_documentWithoutFile_throwsResourceNotFoundException() {
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(document(1L, "Uploaded in Sprint 3")));
+
+        assertThatThrownBy(() -> documentService.getFile(1L))
+                .isInstanceOf(ResourceNotFoundException.class)
+                .hasMessageContaining("no stored file");
+        verifyNoInteractions(fileStorage);
     }
 
     @Test

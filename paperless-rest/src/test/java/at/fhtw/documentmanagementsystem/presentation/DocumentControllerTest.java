@@ -3,6 +3,7 @@ package at.fhtw.documentmanagementsystem.presentation;
 import at.fhtw.documentmanagementsystem.business.DocumentSearchService;
 import at.fhtw.documentmanagementsystem.business.DocumentService;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
@@ -39,6 +40,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
+import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.jsonPath;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.status;
@@ -135,6 +137,27 @@ class DocumentControllerTest {
         mockMvc.perform(get("/api/documents/99"))
                 .andExpect(status().isNotFound())
                 .andExpect(jsonPath("$.detail").value("Document with id 99 not found"));
+    }
+
+    @Test
+    void getFile_returnsPdfInline() throws Exception {
+        byte[] pdf = "%PDF-1.4 test".getBytes(StandardCharsets.UTF_8);
+        when(documentService.getFile(1L)).thenReturn(new DocumentFileDto("Rechnung März.pdf", pdf));
+
+        mockMvc.perform(get("/api/documents/1/file"))
+                .andExpect(status().isOk())
+                .andExpect(content().contentType(MediaType.APPLICATION_PDF))
+                .andExpect(content().bytes(pdf))
+                .andExpect(header().string("Content-Disposition", containsString("inline")))
+                .andExpect(header().string("Content-Disposition", containsString("Rechnung")));
+    }
+
+    @Test
+    void getFile_documentWithoutFile_returns404() throws Exception {
+        when(documentService.getFile(1L)).thenThrow(new ResourceNotFoundException("Document with id 1 has no stored file"));
+
+        mockMvc.perform(get("/api/documents/1/file"))
+                .andExpect(status().isNotFound());
     }
 
     @Test

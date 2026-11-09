@@ -1,6 +1,7 @@
 package at.fhtw.documentmanagementsystem.business;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
@@ -66,6 +67,16 @@ public class DocumentServiceImpl implements DocumentService {
     public DocumentDto getById(Long id) {
         log.info("Fetching document with id: {}", id);
         return documentMapper.mapToDto(findDocument(id));
+    }
+
+    @Override
+    public DocumentFileDto getFile(Long id) {
+        log.info("Loading file of document with id: {}", id);
+        DocumentEntity document = findDocument(id);
+        if (document.getObjectKey() == null) {
+            throw new ResourceNotFoundException("Document with id " + id + " has no stored file");
+        }
+        return new DocumentFileDto(document.getFileName(), fileStorage.load(document.getObjectKey()));
     }
 
     @Override

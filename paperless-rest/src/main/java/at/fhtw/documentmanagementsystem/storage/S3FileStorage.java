@@ -1,6 +1,8 @@
 package at.fhtw.documentmanagementsystem.storage;
 
 import io.minio.BucketExistsArgs;
+import io.minio.GetObjectArgs;
+import io.minio.GetObjectResponse;
 import io.minio.MakeBucketArgs;
 import io.minio.MinioClient;
 import io.minio.PutObjectArgs;
@@ -10,6 +12,8 @@ import jakarta.annotation.PostConstruct;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
+
+import java.io.IOException;
 
 @Slf4j
 @Component
@@ -42,6 +46,19 @@ public class S3FileStorage implements FileStorage {
                     .build());
         } catch (MinioException | IllegalStateException e) {
             throw new StorageException("Could not store file " + key, e);
+        }
+    }
+
+    @Override
+    public byte[] load(String key) {
+        log.info("Loading file {} from bucket {}", key, properties.bucket());
+        try (GetObjectResponse response = client.getObject(GetObjectArgs.builder()
+                .bucket(properties.bucket())
+                .object(key)
+                .build())) {
+            return response.readAllBytes();
+        } catch (MinioException | IOException | IllegalStateException e) {
+            throw new StorageException("Could not load file " + key, e);
         }
     }
 
