@@ -46,8 +46,15 @@ export function DocumentForm({ doc, onUpload, onSaveTitle, onCancel }: DocumentF
                 <Alert text={error} />
 
                 <label className={LABEL_STYLE}>
-                    Title *
-                    <input value={title} onChange={e => setTitle(e.target.value)} required maxLength={255} className={INPUT_STYLE} />
+                    {doc ? 'Title *' : 'Title (optional)'}
+                    <input
+                        value={title}
+                        onChange={e => setTitle(e.target.value)}
+                        required={doc !== null}
+                        maxLength={255}
+                        placeholder={doc ? undefined : 'Default: file name'}
+                        className={INPUT_STYLE}
+                    />
                 </label>
 
                 {!doc && (

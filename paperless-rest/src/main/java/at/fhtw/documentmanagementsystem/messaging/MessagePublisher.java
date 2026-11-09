@@ -1,5 +1,8 @@
 package at.fhtw.documentmanagementsystem.messaging;
 
-public interface OcrMessagePublisher {
+public interface MessagePublisher {
+
     void sendOcrMessage(OcrMessage message);
+
+    void sendIndexMessage(IndexMessage message);
 }

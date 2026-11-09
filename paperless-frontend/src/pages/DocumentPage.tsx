@@ -25,12 +25,17 @@ export function DocumentPage() {
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
-    // Solange der OCR-Text fehlt, das Dokument alle 5 Sekunden neu laden
+    // Solange der OCR-Text fehlt, Dokument und Verlauf alle 5 Sekunden neu laden
     const ocrPending = doc !== null && (doc.content ?? null) === null;
     useEffect(() => {
         if (!ocrPending) return;
-        const interval = setInterval(() => {
-            api.getDocument(id).then(setDoc).catch(err => setError(err.message));
+        const interval = setInterval(async () => {
+            try {
+                setDoc(await api.getDocument(id));
+                setHistory(await api.getHistory(id));
+            } catch (err) {
+                setError((err as Error).message);
+            }
         }, 5000);
         return () => clearInterval(interval);
     }, [id, ocrPending]);
@@ -73,6 +78,14 @@ export function DocumentPage() {
                             <p className="text-xs text-slate-400">Uploaded at {formatDate(doc.uploadedAt)}</p>
                         </div>
                         <div className="space-x-2 text-sm">
+                            <a
+                                href={api.documentFileUrl(id)}
+                                target="_blank"
+                                rel="noreferrer"
+                                className="inline-block rounded-md border border-slate-300 px-3 py-1.5 font-semibold"
+                            >
+                                Open PDF
+                            </a>
                             <button onClick={() => setFormOpen(true)} className="rounded-md border border-slate-300 px-3 py-1.5 font-semibold">Edit</button>
                             <button onClick={deleteDocument} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white">Delete</button>
                         </div>

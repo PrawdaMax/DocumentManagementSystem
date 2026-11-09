@@ -1,6 +1,7 @@
 package at.fhtw.documentmanagementsystem.business;
 
 import at.fhtw.documentmanagementsystem.business.dto.DocumentDto;
+import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
@@ -14,6 +15,8 @@ public interface DocumentService {
 
     DocumentDto getById(Long id);
 
+    DocumentFileDto getFile(Long id);
+
     DocumentDto upload(DocumentUploadDto uploadDto);
 
     DocumentDto update(Long id, DocumentUpdateDto updateDto);
@@ -23,4 +26,6 @@ public interface DocumentService {
     DocumentDto changeStatus(Long id, StatusChangeDto statusChangeDto);
 
     List<DocumentHistoryDto> getHistory(Long id);
+
+    void saveOcrResult(Long id, String content);
 }
