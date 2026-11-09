@@ -25,12 +25,17 @@ export function DocumentPage() {
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
-    // Solange der OCR-Text fehlt, das Dokument alle 5 Sekunden neu laden
+    // Solange der OCR-Text fehlt, Dokument und Verlauf alle 5 Sekunden neu laden
     const ocrPending = doc !== null && (doc.content ?? null) === null;
     useEffect(() => {
         if (!ocrPending) return;
-        const interval = setInterval(() => {
-            api.getDocument(id).then(setDoc).catch(err => setError(err.message));
+        const interval = setInterval(async () => {
+            try {
+                setDoc(await api.getDocument(id));
+                setHistory(await api.getHistory(id));
+            } catch (err) {
+                setError((err as Error).message);
+            }
         }, 5000);
         return () => clearInterval(interval);
     }, [id, ocrPending]);

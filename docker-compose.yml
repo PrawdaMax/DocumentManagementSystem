@@ -48,11 +48,11 @@ services:
       <<: *rustfs-env
       RUSTFS_VOLUMES: /data
       RUSTFS_ADDRESS: 0.0.0.0:9000
-      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9001
+      RUSTFS_CONSOLE_ADDRESS: 0.0.0.0:9090
       RUSTFS_CONSOLE_ENABLE: "true"
     ports:
       - "9000:9000"     # S3-API
-      - "9001:9001"     # Web-Konsole
+      - "9090:9090"     # Web-Konsole
     volumes:
       - rustfs-data:/data
     healthcheck:

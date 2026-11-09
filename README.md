@@ -60,7 +60,7 @@ Eine `.env` ist nicht nötig: Ohne sie gelten die Default-Zugangsdaten aus `dock
 | Web-UI              | http://localhost                       | –                                                     |
 | REST-API            | http://localhost:8081/api/documents    | –                                                     |
 | RabbitMQ-Management | http://localhost:15672                 | `paperless` / `change-me` (oder Werte aus der `.env`) |
-| RustFS-Konsole      | http://localhost:9001                  | `paperless` / `change-me` (oder Werte aus der `.env`) |
+| RustFS-Konsole      | http://localhost:9090                  | `paperless` / `change-me` (oder Werte aus der `.env`) |
 | Elasticsearch       | http://localhost:9200                  | – (Security ist für die Entwicklung abgeschaltet)     |
 | Kibana              | http://localhost:5601                  | –                                                     |
 
@@ -98,7 +98,7 @@ aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in 
 | GET     | `/api/documents/{id}`                  | Ein Dokument                             | 200, 404           |
 | GET     | `/api/documents/{id}/file`             | Das PDF, öffnet sich im Browser          | 200, 404, 503      |
 | POST    | `/api/documents`                       | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
-| PUT     | `/api/documents/{id}`                  | Titel ändern                             | 200, 400, 404      |
+| PUT     | `/api/documents/{id}`                  | Titel ändern                             | 200, 400, 404, 503 |
 | DELETE  | `/api/documents/{id}`                  | Dokument samt Verlauf, PDF und Suchindex | 204, 404, 503      |
 | PATCH   | `/api/documents/{id}/status`           | Status ändern                            | 200, 400, 404, 409 |
 | GET     | `/api/documents/{id}/history`          | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
@@ -179,9 +179,9 @@ Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw.
   unabhängig von HTTP.
 - **Senden in der Transaktion:** Es gibt kein gespeichertes Dokument ohne OCR-Auftrag.
 - **RustFS statt MinIO:** Die Aufgabe nennt MinIO, das offizielle Image `minio/minio` gibt es auf Docker Hub aber
-  nicht mehr, und das GitHub-Repo von MinIO ist archiviert. Der Lektor hat RustFS vorgeschlagen: gleiche S3-API,
-  gleiche Ports (9000 API, 9001 Konsole). Der Code spricht nur S3 über das MinIO-SDK, ein anderer S3-Speicher
-  ändert also nur `docker-compose.yml`.
+  nicht mehr, und das GitHub-Repo von MinIO ist archiviert. Der Lektor hat RustFS vorgeschlagen. Es hat dieselbe
+  S3-API und läuft wie in der Vorgabe auf Port 9000 (API) und 9090 (Web-Konsole). Der Code spricht nur S3 über das
+  MinIO-SDK, ein anderer S3-Speicher ändert also nur `docker-compose.yml`.
 - **Poppler statt Ghostscript:** Tesseract liest nur Bilder, keine PDFs. Die Aufgabe nennt dafür Ghostscript
   „or the like“. Wir nehmen Poppler (`pdftoppm`), das genauso jede PDF-Seite in ein Bild umwandelt. Die
   Python-Bibliothek `pdf2image` braucht dafür nur einen Aufruf (`convert_from_bytes`), danach liest Tesseract
