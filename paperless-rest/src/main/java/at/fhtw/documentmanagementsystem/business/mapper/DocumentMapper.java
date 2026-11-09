@@ -20,8 +20,10 @@ public interface DocumentMapper {
     @Mapping(target = "uploadedAt", ignore = true)
     @Mapping(target = "status", ignore = true)
     @Mapping(target = "history", ignore = true)
+    @Mapping(target = "objectKey", ignore = true)
+    @Mapping(target = "content", ignore = true)
     @Mapping(target = "title", expression = "java(uploadDto.titleOrFileName())")
     @Mapping(target = "contentType", constant = "application/pdf")
-    @Mapping(target = "fileSize", expression = "java(uploadDto.getContent() != null ? (long) uploadDto.getContent().length : 0L)")
+    @Mapping(target = "fileSize", expression = "java(uploadDto.getFileContent() != null ? (long) uploadDto.getFileContent().length : 0L)")
     DocumentEntity mapToEntity(DocumentUploadDto uploadDto);
 }

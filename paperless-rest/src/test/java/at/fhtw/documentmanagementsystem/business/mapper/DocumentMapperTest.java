@@ -91,7 +91,7 @@ class DocumentMapperTest {
     void mapToEntity_startsWithEmptyHistory() {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .fileName("invoice.pdf")
-                .content("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
+                .fileContent("%PDF-1.4".getBytes(StandardCharsets.UTF_8))
                 .build();
 
         assertThat(documentMapper.mapToEntity(uploadDto).getHistory()).isEmpty();

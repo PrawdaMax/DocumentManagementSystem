@@ -8,6 +8,7 @@ import at.fhtw.documentmanagementsystem.persistence.repository.DocumentRepositor
 import at.fhtw.documentmanagementsystem.search.SearchIndex;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.extension.ExtendWith;
+import org.mapstruct.factory.Mappers;
 import org.mockito.InjectMocks;
 import org.mockito.Mock;
 import org.mockito.Spy;
@@ -31,7 +32,7 @@ class DocumentSearchServiceImplTest {
     private DocumentRepository documentRepository;
 
     @Spy
-    private DocumentMapper documentMapper = new DocumentMapper();
+    private DocumentMapper documentMapper = Mappers.getMapper(DocumentMapper.class);
 
     @InjectMocks
     private DocumentSearchServiceImpl documentSearchService;
