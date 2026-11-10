@@ -29,8 +29,17 @@ export function getDocuments() {
     return request<DocumentDto[]>('');
 }
 
+// Volltextsuche über Elasticsearch, der REST-Server liefert die passenden Dokumente
+export function searchDocuments(query: string) {
+    return request<DocumentDto[]>(`/search?query=${encodeURIComponent(query)}`);
+}
+
 export function getDocument(id: number) {
     return request<DocumentDto>(`/${id}`);
+}
+
+export function documentFileUrl(id: number) {
+    return `/api/documents/${id}/file`;
 }
 
 export function uploadDocument(title: string, file: File) {

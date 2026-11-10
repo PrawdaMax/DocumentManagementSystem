@@ -1,1 +1,5 @@
+minio==7.2.20
+pdf2image==1.17.0
 pika==1.4.4
+pillow==13.0.0
+pytesseract==0.3.13
