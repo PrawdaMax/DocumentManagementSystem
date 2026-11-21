@@ -6,7 +6,7 @@ export function App() {
     return (
         <div className="min-h-screen bg-slate-50 text-slate-800">
             <header className="bg-indigo-600 px-6 py-4 text-white">
-                <Link to="/" className="text-lg font-bold">Paperless Rest DMS</Link>
+                <Link to="/" className="text-lg font-bold">Paperless DMS</Link>
             </header>
 
             <main className="mx-auto max-w-5xl p-6">
