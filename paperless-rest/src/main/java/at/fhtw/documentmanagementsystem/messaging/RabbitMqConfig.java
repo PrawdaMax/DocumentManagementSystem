@@ -12,6 +12,8 @@ public class RabbitMqConfig {
     public static final String OCR_QUEUE = "ocr-queue";
     public static final String OCR_RESULT_QUEUE = "ocr-result-queue";
     public static final String INDEX_QUEUE = "index-queue";
+    public static final String GENAI_QUEUE = "genai-queue";
+    public static final String GENAI_RESULT_QUEUE = "genai-result-queue";
 
     @Bean
     public Queue ocrQueue() {
@@ -26,6 +28,16 @@ public class RabbitMqConfig {
     @Bean
     public Queue indexQueue() {
         return new Queue(INDEX_QUEUE, true);
+    }
+
+    @Bean
+    public Queue genAiQueue() {
+        return new Queue(GENAI_QUEUE, true);
+    }
+
+    @Bean
+    public Queue genAiResultQueue() {
+        return new Queue(GENAI_RESULT_QUEUE, true);
     }
 
     @Bean

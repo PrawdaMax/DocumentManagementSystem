@@ -5,4 +5,6 @@ public interface MessagePublisher {
     void sendOcrMessage(OcrMessage message);
 
     void sendIndexMessage(IndexMessage message);
+
+    void sendGenAiMessage(GenAiMessage message);
 }

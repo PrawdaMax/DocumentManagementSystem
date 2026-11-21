@@ -6,11 +6,13 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.GenAiMessage;
 import at.fhtw.documentmanagementsystem.messaging.IndexMessage;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublisher;
 import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
@@ -27,6 +29,7 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
@@ -153,8 +156,51 @@ public class DocumentServiceImpl implements DocumentService {
         }
         document.setContent(content);
         recordStatus(document, document.getStatus(), "OCR completed");
+        requestSummary(document);
         documentRepository.save(document);
         sendIndexMessage(document);
+    }
+
+    @Override
+    public void saveSummaryResult(Long id, String summary, String error) {
+        log.info("Saving summary result for document with id: {}", id);
+        DocumentEntity document = documentRepository.findById(id).orElse(null);
+        if (document == null) {
+            log.warn("Document with id {} no longer exists, summary result is ignored", id);
+            return;
+        }
+        if (summary != null) {
+            document.setSummary(summary);
+            document.setSummaryError(null);
+            recordStatus(document, document.getStatus(), "Summary generated");
+        } else {
+            log.warn("Summary for document with id {} failed: {}", id, error);
+            document.setSummaryError(Objects.requireNonNullElse(error, "Summary could not be generated"));
+            recordStatus(document, document.getStatus(), "Summary failed");
+        }
+        documentRepository.save(document);
+    }
+
+    @Override
+    public DocumentDto retrySummary(Long id) {
+        log.info("Restarting summary for document with id: {}", id);
+        DocumentEntity document = findDocument(id);
+        if (document.getContent() == null) {
+            throw new DocumentNotReadyException("Text recognition for document " + id + " is not finished yet");
+        }
+        recordStatus(document, document.getStatus(), "Summary restarted");
+        requestSummary(document);
+        return documentMapper.mapToDto(documentRepository.save(document));
+    }
+
+    private void requestSummary(DocumentEntity document) {
+        document.setSummary(null);
+        if (document.getContent().isBlank()) {
+            document.setSummaryError("No text was found, so there is nothing to summarize");
+            return;
+        }
+        document.setSummaryError(null);
+        messagePublisher.sendGenAiMessage(new GenAiMessage(document.getId(), document.getContent()));
     }
 
     private void sendIndexMessage(DocumentEntity document) {

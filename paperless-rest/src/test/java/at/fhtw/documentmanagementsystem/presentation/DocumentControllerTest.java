@@ -7,6 +7,7 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidSearchQueryException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
@@ -39,6 +40,7 @@ import static org.springframework.test.web.servlet.request.MockMvcRequestBuilder
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -269,6 +271,26 @@ class DocumentControllerTest {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Status change from RECEIVED to DONE is not allowed"));
+    }
+
+    @Test
+    void retrySummary_returns202WithDocument() throws Exception {
+        when(documentService.retrySummary(1L)).thenReturn(document(1L, "Invoice"));
+
+        mockMvc.perform(post("/api/documents/1/summary"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.summary").doesNotExist());
+    }
+
+    @Test
+    void retrySummary_ocrNotFinished_returns409() throws Exception {
+        when(documentService.retrySummary(1L))
+                .thenThrow(new DocumentNotReadyException("Text recognition for document 1 is not finished yet"));
+
+        mockMvc.perform(post("/api/documents/1/summary"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Text recognition for document 1 is not finished yet"));
     }
 
     @Test
