@@ -1,11 +1,13 @@
-import { Link, useFocusEffect } from 'expo-router';
+import { Link, router, useFocusEffect } from 'expo-router';
 import { useCallback, useState } from 'react';
 import { FlatList, Pressable, RefreshControl, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import { DocumentDto, errorMessage, getDocuments, searchDocuments } from '@/api';
+import { AppButton } from '@/components/AppButton';
 import { ErrorBox } from '@/components/ErrorBox';
 import { StatusBadge } from '@/components/StatusBadge';
-import { COLORS, formatBytes, formatDate } from '@/theme';
+import { UploadModal } from '@/components/UploadModal';
+import { COLORS, FORM, formatBytes, formatDate } from '@/theme';
 
 export default function DocumentListScreen() {
     const insets = useSafeAreaInsets();
@@ -13,6 +15,7 @@ export default function DocumentListScreen() {
     const [query, setQuery] = useState('');
     const [error, setError] = useState<string | null>(null);
     const [loading, setLoading] = useState(false);
+    const [uploadOpen, setUploadOpen] = useState(false);
 
     const load = useCallback(async () => {
         setLoading(true);
@@ -34,12 +37,20 @@ export default function DocumentListScreen() {
         }, [load]),
     );
 
+    function openUploaded(document: DocumentDto) {
+        setUploadOpen(false);
+        router.push({ pathname: '/documents/[id]', params: { id: document.id } });
+    }
+
     return (
         <View style={[styles.screen, { paddingBottom: 12 + insets.bottom }]}>
             <View style={styles.card}>
-                <Text style={styles.heading}>Documents</Text>
+                <View style={styles.header}>
+                    <Text style={styles.heading}>Documents</Text>
+                    <AppButton title="+ New Document" variant="primary" onPress={() => setUploadOpen(true)} />
+                </View>
                 <TextInput
-                    style={styles.search}
+                    style={FORM.input}
                     placeholder="Search title or text..."
                     placeholderTextColor={COLORS.light}
                     value={query}
@@ -65,6 +76,11 @@ export default function DocumentListScreen() {
                             <Pressable style={styles.row}>
                                 <View style={styles.rowText}>
                                     <Text style={styles.title}>{item.title}</Text>
+                                    {item.summary && (
+                                        <Text style={styles.summary} numberOfLines={2}>
+                                            {item.summary}
+                                        </Text>
+                                    )}
                                     <Text style={styles.date}>{formatDate(item.uploadedAt)}</Text>
                                     <Text style={styles.file}>
                                         {item.fileName ?? 'N/A'} · {formatBytes(item.fileSize)}
@@ -76,6 +92,8 @@ export default function DocumentListScreen() {
                     )}
                 />
             </View>
+
+            {uploadOpen && <UploadModal onUploaded={openUploaded} onCancel={() => setUploadOpen(false)} />}
         </View>
     );
 }
@@ -94,21 +112,14 @@ const styles = StyleSheet.create({
         shadowOffset: { width: 0, height: 1 },
         elevation: 1,
     },
+    header: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
     heading: { fontSize: 18, fontWeight: 'bold', color: COLORS.text },
-    search: {
-        borderWidth: 1,
-        borderColor: COLORS.border,
-        borderRadius: 6,
-        paddingHorizontal: 12,
-        paddingVertical: 8,
-        fontSize: 14,
-        color: COLORS.text,
-    },
     divider: { height: 1, backgroundColor: COLORS.divider },
     empty: { paddingVertical: 32, textAlign: 'center', fontSize: 14, color: COLORS.light },
     row: { flexDirection: 'row', alignItems: 'flex-start', gap: 12, paddingVertical: 12 },
     rowText: { flex: 1, gap: 2 },
     title: { fontSize: 15, fontWeight: '600', color: COLORS.text },
+    summary: { fontSize: 12, color: COLORS.label },
     date: { fontSize: 12, color: COLORS.light },
     file: { fontSize: 12, color: COLORS.muted, fontFamily: 'monospace' },
 });

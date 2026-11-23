@@ -13,6 +13,7 @@ import {
     errorMessage,
     getDocument,
     getHistory,
+    retrySummary,
     summaryState,
     updateDocument,
 } from '@/api';
@@ -29,6 +30,7 @@ export default function DocumentScreen() {
     const [document, setDocument] = useState<DocumentDto | null>(null);
     const [history, setHistory] = useState<DocumentHistoryDto[]>([]);
     const [editing, setEditing] = useState(false);
+    const [retrying, setRetrying] = useState(false);
     const [error, setError] = useState<string | null>(null);
 
     const load = useCallback(async () => {
@@ -92,6 +94,19 @@ export default function DocumentScreen() {
         }
     }
 
+    async function retry() {
+        setRetrying(true);
+        try {
+            setDocument(await retrySummary(doc.id));
+            setHistory(await getHistory(id));
+            setError(null);
+        } catch (e) {
+            setError(errorMessage(e));
+        } finally {
+            setRetrying(false);
+        }
+    }
+
     function confirmDelete() {
         Alert.alert('Delete document', 'Delete this document and its history?', [
             { text: 'Cancel', style: 'cancel' },
@@ -142,8 +157,15 @@ export default function DocumentScreen() {
 
                 {state !== 'unavailable' && (
                     <Section title="Summary">
-                        {state === 'done' && <Text style={styles.text}>{doc.summary}</Text>}
-                        {state === 'failed' && <ErrorBox text={`Summary could not be generated: ${doc.summaryError}`} />}
+                        {state === 'done' && <Text style={[styles.text, styles.summary]}>{doc.summary}</Text>}
+                        {state === 'failed' && (
+                            <View style={styles.summaryError}>
+                                <Text style={styles.summaryErrorText}>
+                                    Summary could not be generated: {doc.summaryError}
+                                </Text>
+                                <AppButton title="Retry summary" variant="danger" onPress={retry} disabled={retrying} />
+                            </View>
+                        )}
                         {state === 'pending' && <Text style={styles.italic}>Summary is being generated…</Text>}
                         {state === 'waiting-for-ocr' && (
                             <Text style={styles.italic}>The summary is created after text recognition.</Text>
@@ -230,6 +252,9 @@ const styles = StyleSheet.create({
     sectionHeading: { fontSize: 12, fontWeight: 'bold', color: COLORS.light, textTransform: 'uppercase' },
     text: { fontSize: 14, lineHeight: 20, color: COLORS.text },
     italic: { fontSize: 14, fontStyle: 'italic', color: COLORS.muted },
+    summary: { borderRadius: 6, padding: 12, backgroundColor: COLORS.summaryBackground, overflow: 'hidden' },
+    summaryError: { alignItems: 'flex-start', gap: 8, borderRadius: 6, padding: 12, backgroundColor: COLORS.errorBackground },
+    summaryErrorText: { fontSize: 14, color: COLORS.errorText },
     textBox: { maxHeight: 300, borderRadius: 6, padding: 12, backgroundColor: COLORS.background },
     historyEntry: { gap: 2, borderLeftWidth: 2, borderLeftColor: COLORS.primaryLight, paddingLeft: 12 },
     historyHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },

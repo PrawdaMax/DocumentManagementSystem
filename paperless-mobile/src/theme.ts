@@ -1,8 +1,10 @@
+import { StyleSheet } from 'react-native';
 import type { DocumentStatus } from '@/api';
 
 export const COLORS = {
     primary: '#4f46e5',
     primaryLight: '#c7d2fe',
+    summaryBackground: '#eef2ff',
     background: '#f8fafc',
     card: '#ffffff',
     border: '#cbd5e1',
@@ -15,6 +17,20 @@ export const COLORS = {
     errorBackground: '#fff1f2',
     errorText: '#9f1239',
 };
+
+export const FORM = StyleSheet.create({
+    field: { gap: 4 },
+    label: { fontSize: 12, fontWeight: '600', color: COLORS.label },
+    input: {
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderRadius: 6,
+        paddingHorizontal: 12,
+        paddingVertical: 8,
+        fontSize: 14,
+        color: COLORS.text,
+    },
+});
 
 export const STATUS: Record<DocumentStatus, { label: string; background: string; color: string; next: DocumentStatus[] }> = {
     RECEIVED: { label: 'Received', background: '#f1f5f9', color: '#1e293b', next: ['IN_REVIEW', 'REJECTED'] },

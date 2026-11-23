@@ -1,56 +1,79 @@
-# Welcome to your Expo app 👋
+# Paperless DMS – Smartphone-App
 
-This is an [Expo](https://expo.dev) project created with [`create-expo-app`](https://www.npmjs.com/package/create-expo-app).
+React-Native-App (Expo SDK 58, TypeScript, Expo Router) für das Paperless DMS. Sie läuft in **Expo Go** auf iOS
+und Android und spricht wie die Web-UI über nginx (Port 80, `/api`) mit dem REST-Server.
 
-## Get started
+## Funktionen
 
-1. Install dependencies
+- Dokumentliste mit Volltextsuche, Status als Pille und den ersten zwei Zeilen der Zusammenfassung
+- PDF-Upload mit optionalem Titel
+- Detailseite mit Metadaten, Zusammenfassung („Retry summary“ nach einem Fehler), erkanntem Text in einer
+  scrollbaren Box, Statuswechsel mit Kommentar und Verlauf
+- Titel bearbeiten, Dokument löschen, PDF öffnen
+- Die Detailseite aktualisiert sich selbst, solange OCR oder Zusammenfassung laufen
 
-   ```bash
-   npm install
-   ```
+## Voraussetzungen
 
-2. Start the app
+- Node.js 24 mit npm
+- Laufender Stack im Projektordner: `docker compose up -d`
+- **Expo Go** aus dem App Store bzw. Play Store, oder ein Android-Emulator bzw. iOS-Simulator
+- Handy und Rechner im selben WLAN (im FH-WLAN sind Geräte oft abgeschottet, dann den Hotspot des Handys nutzen)
 
-   ```bash
-   npx expo start
-   ```
-
-In the output, you'll find options to open the app in a
-
-- [development build](https://docs.expo.dev/develop/development-builds/introduction/)
-- [Android emulator](https://docs.expo.dev/workflow/android-studio-emulator/)
-- [iOS simulator](https://docs.expo.dev/workflow/ios-simulator/)
-- [Expo Go](https://expo.dev/go), a limited sandbox for trying out app development with Expo
-
-You can start developing by editing the files inside the **src/app** directory. This project uses [file-based routing](https://docs.expo.dev/router/introduction).
-
-## Get a fresh project
-
-When you're ready, run:
+## Starten
 
 ```bash
-npm run reset-project
+cd paperless-mobile
+npm install
+npm start
 ```
 
-This command will move the starter code to the **example** directory and create a blank **src/app** directory where you can start developing.
+QR-Code scannen: iPhone mit der Kamera-App, Android in Expo Go mit „Scan QR code“. Läuft ein Emulator, startet `a`
+die App im Android-Emulator und `i` im iOS-Simulator. Expo Go wird dort automatisch installiert.
 
-### Other setup steps
+Der runde Entwicklerknopf von Expo Go kann Buttons verdecken. Er lässt sich im Entwicklermenü unter „Tools button“
+ausschalten.
 
-- To set up ESLint for linting, run `npx expo lint`, or follow our guide on ["Using ESLint and Prettier"](https://docs.expo.dev/guides/using-eslint/)
-- If you'd like to set up unit testing, follow our guide on ["Unit Testing with Jest"](https://docs.expo.dev/develop/unit-testing/)
-- Learn more about the TypeScript setup in this template in our guide on ["Using TypeScript"](https://docs.expo.dev/guides/typescript/)
+Der Entwicklungsserver läuft auf Port **8082**, weil der REST-Server 8081 belegt.
 
-## Learn more
+**Server-Adresse:** Die App nimmt die IP des Rechners aus der Adresse des Entwicklungsservers
+(`Constants.expoConfig.hostUri`) und hängt `/api/documents` an. Funktioniert das nicht (z. B. mit `--tunnel`):
 
-To learn more about developing your project with Expo, look at the following resources:
+```bash
+EXPO_PUBLIC_API_URL=http://<IP-des-Rechners>/api/documents npm start
+```
 
-- [Expo documentation](https://docs.expo.dev/): Learn fundamentals, or go into advanced topics with our [guides](https://docs.expo.dev/guides).
-- [Learn Expo tutorial](https://docs.expo.dev/tutorial/introduction/): Follow a step-by-step tutorial where you'll create a project that runs on Android, iOS, and the web.
+In der Windows-PowerShell: `$env:EXPO_PUBLIC_API_URL="http://<IP-des-Rechners>/api/documents"; npm start`.
 
-## Join the community
+Die IP steht in der Ausgabe von `npm start` (`exp://<IP>:8082`).
 
-Join our community of developers creating universal apps.
+## Aufbau
 
-- [Expo on GitHub](https://github.com/expo/expo): View our open source platform and contribute.
-- [Discord community](https://chat.expo.dev): Chat with Expo users and ask questions.
+```
+src/api.ts                   REST-Aufrufe, Typen, summaryState()
+src/theme.ts                 Farben wie in der Web-UI, Status-Tabelle, Formularstile, Formatierung
+src/app/_layout.tsx          Navigation (Expo Router) und Kopfzeile
+src/app/index.tsx            Dokumentliste, Suche, Upload
+src/app/documents/[id].tsx   Detailseite
+src/components/              AppButton, Dialog, EditTitleModal, ErrorBox, StatusBadge, StatusChange, UploadModal
+```
+
+## Prüfen
+
+```bash
+npx tsc --noEmit
+npx expo lint
+```
+
+Automatisierte Tests gibt es für die App nicht. Geprüft wird mit TypeScript, ESLint und von Hand in Expo Go
+gegen den laufenden Stack.
+
+## Design-Entscheidungen
+
+- **Expo und Expo Go:** gleiche Sprache und Konzepte wie die Web-UI (React, TypeScript), ein Code für iOS und
+  Android, kein eigener Build mit Xcode oder Android Studio nötig.
+- **Upload über `XMLHttpRequest`:** In SDK 58 ersetzt Expo das globale `fetch`. Das kann den React-Native-Dateiteil
+  `{ uri, name, type }` nicht senden („Unsupported FormDataPart implementation“), `XMLHttpRequest` schon.
+- **PDF öffnen:** Die App lädt das PDF in den Cache (`expo-file-system`) und öffnet es mit `file.preview()`.
+  Android zeigt es im PDF-Viewer des Systems über der App, iOS in der Vorschau innerhalb der App. Ein fest
+  eingebauter PDF-Viewer bräuchte eine native Bibliothek, die es in Expo Go nicht gibt.
+- **Keine Einstellungsseite:** Die Server-Adresse kommt automatisch vom Entwicklungsserver.

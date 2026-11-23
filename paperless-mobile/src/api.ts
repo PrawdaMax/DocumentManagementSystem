@@ -69,6 +69,32 @@ export function deleteDocument(id: number) {
     return request<void>(`/${id}`, 'DELETE');
 }
 
+export function retrySummary(id: number) {
+    return request<DocumentDto>(`/${id}/summary`, 'POST');
+}
+
+export function uploadDocument(uri: string, name: string, title: string) {
+    const formData = new FormData();
+    if (title) {
+        formData.append('title', title);
+    }
+    formData.append('file', { uri, name, type: 'application/pdf' } as unknown as Blob);
+    return new Promise<DocumentDto>((resolve, reject) => {
+        const xhr = new XMLHttpRequest();
+        xhr.open('POST', API_URL);
+        xhr.responseType = 'json';
+        xhr.onload = () => {
+            if (xhr.status < 300) {
+                resolve(xhr.response);
+            } else {
+                reject(new Error(xhr.response?.detail ?? `Upload failed with status ${xhr.status}`));
+            }
+        };
+        xhr.onerror = () => reject(new Error('Network request failed'));
+        xhr.send(formData);
+    });
+}
+
 export function documentFileUrl(id: number) {
     return `${API_URL}/${id}/file`;
 }
