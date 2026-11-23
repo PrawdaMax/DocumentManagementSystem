@@ -7,6 +7,7 @@ import { StatusBadge } from '../components/StatusBadge';
 import { StatusChange } from '../components/StatusChange';
 import { formatBytes, formatDate } from '../format';
 import { STATUS } from '../status';
+import { summaryState } from '../summary';
 import type { DocumentDto, DocumentHistoryDto, DocumentStatus } from '../types';
 
 const HEADING_STYLE = 'mb-2 text-xs font-bold text-slate-400 uppercase';
@@ -18,6 +19,7 @@ export function DocumentPage() {
     const [history, setHistory] = useState<DocumentHistoryDto[]>([]);
     const [formOpen, setFormOpen] = useState(false);
     const [error, setError] = useState('');
+    const [retrying, setRetrying] = useState(false);
 
     // Dokument und Verlauf laden, sobald sich die ID in der URL ändert
     useEffect(() => {
@@ -25,10 +27,12 @@ export function DocumentPage() {
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
-    // Solange der OCR-Text fehlt, Dokument und Verlauf alle 5 Sekunden neu laden
-    const ocrPending = doc !== null && (doc.content ?? null) === null;
+    // Solange OCR-Text oder Zusammenfassung fehlen, Dokument und Verlauf alle 5 Sekunden neu laden
+    const summary = doc ? summaryState(doc) : null;
+    const ocrPending = summary === 'waiting-for-ocr';
+    const processing = ocrPending || summary === 'pending';
     useEffect(() => {
-        if (!ocrPending) return;
+        if (!processing) return;
         const interval = setInterval(async () => {
             try {
                 setDoc(await api.getDocument(id));
@@ -38,7 +42,7 @@ export function DocumentPage() {
             }
         }, 5000);
         return () => clearInterval(interval);
-    }, [id, ocrPending]);
+    }, [id, processing]);
 
     async function updateDocumentTitle(title: string) {
         setDoc(await api.updateDocument(id, { title }));
@@ -52,6 +56,19 @@ export function DocumentPage() {
             navigate('/');
         } catch (err) {
             setError((err as Error).message);
+        }
+    }
+
+    async function retrySummary() {
+        setRetrying(true);
+        try {
+            setDoc(await api.retrySummary(id));
+            setHistory(await api.getHistory(id));
+            setError('');
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setRetrying(false);
         }
     }
 
@@ -97,6 +114,33 @@ export function DocumentPage() {
                         <p><b>Size:</b> {formatBytes(doc.fileSize)}</p>
                         <p><b>Status:</b> <StatusBadge status={doc.status} /></p>
                     </div>
+
+                    {summary !== 'unavailable' && (
+                        <section>
+                            <h3 className={HEADING_STYLE}>Summary</h3>
+                            {summary === 'waiting-for-ocr' && (
+                                <p className="text-sm text-slate-500 italic">The summary is created after text recognition.</p>
+                            )}
+                            {summary === 'pending' && (
+                                <p className="text-sm text-slate-500 italic">Summary is being generated…</p>
+                            )}
+                            {summary === 'done' && (
+                                <p className="rounded-md bg-indigo-50 p-3 text-sm whitespace-pre-wrap">{doc.summary}</p>
+                            )}
+                            {summary === 'failed' && (
+                                <div className="flex items-start justify-between gap-4 rounded-md bg-rose-50 p-3 text-sm text-rose-800">
+                                    <p>Summary could not be generated: {doc.summaryError}</p>
+                                    <button
+                                        onClick={retrySummary}
+                                        disabled={retrying}
+                                        className="shrink-0 rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+                                    >
+                                        Retry summary
+                                    </button>
+                                </div>
+                            )}
+                        </section>
+                    )}
 
                     <section>
                         <h3 className={HEADING_STYLE}>Extracted Text</h3>

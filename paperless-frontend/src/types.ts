@@ -10,6 +10,9 @@ export interface DocumentDto {
     status: DocumentStatus;
     // OCR-Text, null (oder fehlend) solange der OCR-Worker noch arbeitet
     content?: string | null;
+    // GenAI-Zusammenfassung bzw. Fehlermeldung, fehlen ganz bei einem Server ohne GenAI-Worker
+    summary?: string | null;
+    summaryError?: string | null;
 }
 
 export interface DocumentUpdateDto {
