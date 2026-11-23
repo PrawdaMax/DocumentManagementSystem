@@ -101,4 +101,10 @@ public class DocumentController {
     public List<DocumentHistoryDto> getHistory(@PathVariable Long id) {
         return documentService.getHistory(id);
     }
+
+    @PostMapping("/{id}/summary")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public DocumentDto retrySummary(@PathVariable Long id) {
+        return documentService.retrySummary(id);
+    }
 }

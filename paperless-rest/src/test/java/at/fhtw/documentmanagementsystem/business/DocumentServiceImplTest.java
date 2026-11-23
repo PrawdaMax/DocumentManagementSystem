@@ -6,12 +6,14 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.GenAiMessage;
 import at.fhtw.documentmanagementsystem.messaging.IndexMessage;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublisher;
@@ -254,6 +256,7 @@ class DocumentServiceImplTest {
         assertThat(existing.getStatus()).isEqualTo(RECEIVED);
         assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("OCR completed");
         verify(messagePublisher).sendIndexMessage(new IndexMessage(1L, "Invoice", "Hello World"));
+        verify(messagePublisher).sendGenAiMessage(new GenAiMessage(1L, "Hello World"));
     }
 
     @Test
@@ -261,6 +264,81 @@ class DocumentServiceImplTest {
         when(documentRepository.findById(99L)).thenReturn(Optional.empty());
 
         documentService.saveOcrResult(99L, "Hello World");
+
+        verify(documentRepository, never()).save(any());
+        verifyNoInteractions(messagePublisher);
+    }
+
+    @Test
+    void saveOcrResult_noText_storesSummaryErrorAndSendsNoGenAiMessage() {
+        DocumentEntity existing = document(1L, "Invoice");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveOcrResult(1L, "  ");
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummaryError()).isEqualTo("No text was found, so there is nothing to summarize");
+        verify(messagePublisher, never()).sendGenAiMessage(any());
+    }
+
+    @Test
+    void saveSummaryResult_summary_storesSummaryAndAddsHistory() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setSummaryError("Gemini error 429: Quota exceeded");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveSummaryResult(1L, "A short summary.", null);
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummary()).isEqualTo("A short summary.");
+        assertThat(existing.getSummaryError()).isNull();
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary generated");
+    }
+
+    @Test
+    void saveSummaryResult_error_storesErrorAndAddsHistory() {
+        DocumentEntity existing = document(1L, "Invoice");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveSummaryResult(1L, null, "Gemini error 429: Quota exceeded");
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummary()).isNull();
+        assertThat(existing.getSummaryError()).isEqualTo("Gemini error 429: Quota exceeded");
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary failed");
+    }
+
+    @Test
+    void saveSummaryResult_deletedDocument_savesNothing() {
+        when(documentRepository.findById(99L)).thenReturn(Optional.empty());
+
+        documentService.saveSummaryResult(99L, "A short summary.", null);
+
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void retrySummary_withText_resetsSummaryAndSendsGenAiMessage() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setContent("Hello World");
+        existing.setSummaryError("Gemini error 429: Quota exceeded");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(documentRepository.save(existing)).thenReturn(existing);
+
+        DocumentDto result = documentService.retrySummary(1L);
+
+        assertThat(result.getSummary()).isNull();
+        assertThat(result.getSummaryError()).isNull();
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary restarted");
+        verify(messagePublisher).sendGenAiMessage(new GenAiMessage(1L, "Hello World"));
+    }
+
+    @Test
+    void retrySummary_ocrNotFinished_throwsDocumentNotReadyException() {
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(document(1L, "Invoice")));
+
+        assertThatThrownBy(() -> documentService.retrySummary(1L))
+                .isInstanceOf(DocumentNotReadyException.class);
 
         verify(documentRepository, never()).save(any());
         verifyNoInteractions(messagePublisher);

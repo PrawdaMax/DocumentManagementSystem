@@ -22,4 +22,6 @@ public class DocumentDto {
     private Instant uploadedAt;
     private DocumentStatus status;
     private String content;
+    private String summary;
+    private String summaryError;
 }

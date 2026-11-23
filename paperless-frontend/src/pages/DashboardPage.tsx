@@ -75,6 +75,7 @@ export function DashboardPage() {
                                     {doc.title}
                                 </Link>
                                 <div className="text-xs text-slate-400">{formatDate(doc.uploadedAt)}</div>
+                                {doc.summary && <p className="mt-1 line-clamp-2 text-xs text-slate-600">{doc.summary}</p>}
                             </td>
                             <td className="px-4 py-3 text-xs text-slate-500">
                                 <div className="font-mono">{doc.fileName ?? 'N/A'}</div>

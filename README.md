@@ -3,10 +3,13 @@
 Semesterprojekt für SWEN3: ein Dokumentenmanagementsystem zum Archivieren von Dokumenten,
 mit OCR, KI-generierten Zusammenfassungen und Volltextsuche.
 
-**Stand Sprint 4:** Upload von PDFs über die Web-UI oder die REST-API und Dokumentstatus mit Verlauf
-(zusätzlicher Use Case). Die PDFs liegen in RustFS. Nach jedem Upload liest der OCR-Worker den Text aus
-dem PDF (Tesseract), der REST-Server speichert ihn, und der Indexing-Worker schreibt ihn nach Elasticsearch.
-Die Web-UI zeigt den erkannten Text an und sucht über den REST-Server im Volltext.
+**Stand Sprint 5:** Upload von PDFs über die Web-UI, die Smartphone-App oder die REST-API und Dokumentstatus
+mit Verlauf (zusätzlicher Use Case). Die PDFs liegen in RustFS. Nach jedem Upload liest der OCR-Worker den Text
+aus dem PDF (Tesseract), der REST-Server speichert ihn, und der Indexing-Worker schreibt ihn nach Elasticsearch.
+Danach erzeugt der GenAI-Worker mit Google Gemini eine Zusammenfassung, die der REST-Server in der Datenbank
+speichert. Die Web-UI zeigt Text und Zusammenfassung an und sucht über den REST-Server im Volltext.
+
+Smartphone-App: siehe [`paperless-mobile/README.md`](paperless-mobile/README.md).
 
 - Repository: https://github.com/PrawdaMax/DocumentManagementSystem
 - Kanban-Board: https://github.com/users/PrawdaMax/projects/1
@@ -15,6 +18,7 @@ Die Web-UI zeigt den erkannten Text an und sucht über den REST-Server im Vollte
 
 ```mermaid
 flowchart LR
+    phone([Smartphone-App<br/>Expo Go]) -->|HTTP, Port 80 /api| frontend
     browser([Browser]) -->|HTTP, Port 80| frontend["frontend<br/>nginx + Web-UI"]
     frontend -->|/api| rest["rest<br/>REST-Server, Port 8081"]
     rest -->|JPA| db[("db<br/>PostgreSQL")]
@@ -28,6 +32,11 @@ flowchart LR
     rest --> indexQueue[["index-queue"]]
     indexQueue --> indexing["indexing-worker<br/>Python"]
     indexing -->|indexieren| es
+    rest --> genaiQueue[["genai-queue"]]
+    genaiQueue --> genai["genai-worker<br/>Python"]
+    genai -->|HTTPS| gemini[("Google Gemini API")]
+    genai --> genaiResultQueue[["genai-result-queue"]]
+    genaiResultQueue --> rest
     kibana["kibana"] --> es
 ```
 
@@ -37,8 +46,10 @@ flowchart LR
 | `paperless-frontend/`        | Web-UI (React, Vite, Tailwind), ausgeliefert über nginx                        |
 | `paperless-ocr-worker/`      | OCR-Worker (Python 3.14, pika, minio, pdf2image/Poppler, pytesseract)          |
 | `paperless-indexing-worker/` | Indexing-Worker (Python 3.14, pika, elasticsearch)                             |
+| `paperless-genai-worker/`    | GenAI-Worker (Python 3.14, pika, google-genai)                                 |
+| `paperless-mobile/`          | Smartphone-App (React Native, Expo, läuft in Expo Go)                          |
 
-Die beiden Worker teilen keinen Code mit dem REST-Server und auch nicht untereinander.
+Die Worker teilen keinen Code mit dem REST-Server und auch nicht untereinander.
 
 Der REST-Server hat sechs Schichten, jede ist ein Package: `presentation` (Controller, Listener, Fehlerbehandlung),
 `business` (Services, DTOs, Mapper, Validierung, Exceptions), `persistence` (Entities, Repositories),
@@ -71,13 +82,29 @@ und kann eine Minute zum Starten brauchen.
 PostgreSQL und RabbitMQ übernehmen die Zugangsdaten nur beim ersten Start. Wurden sie geändert,
 die Volumes mit `docker compose down -v` löschen. RustFS liest sie bei jedem Start neu.
 
+### Gemini-API-Key
+
+Für die Zusammenfassungen braucht der GenAI-Worker einen Key für die Gemini-API. Er ist kostenlos in
+[Google AI Studio](https://aistudio.google.com/apikey) erhältlich (Free Tier). In die lokale `.env` eintragen:
+
+```
+GEMINI_API_KEY=dein-key
+GEMINI_MODEL=gemini-3.8-flash
+```
+
+Die `.env` steht in `.gitignore`, der Key kommt also nie ins Git. Ohne Key starten trotzdem alle Container:
+Der GenAI-Worker loggt `GEMINI_API_KEY is not set`, und jedes Dokument bekommt statt einer Zusammenfassung den
+Fehler „Gemini error 400: API key not valid…“. Nach dem Eintragen des Keys reicht `docker compose up -d genai-worker`
+und „Retry summary“ bzw. `POST /api/documents/{id}/summary`.
+
 ## Tests und CI
 
 **Teststrategie:**
 
 - **REST-Server:** Unit-Tests pro Schicht (JUnit 5, Mockito, MockMvc), die Mapper werden direkt getestet.
-- **Worker:** Unit-Tests mit pytest. RabbitMQ, RustFS und Elasticsearch werden gemockt, getestet werden die
-  Verarbeitung einer Nachricht, die gesendete Antwort und das Verwerfen fehlerhafter Nachrichten.
+- **Worker:** Unit-Tests mit pytest. RabbitMQ, RustFS, Elasticsearch und Gemini werden gemockt, getestet werden die
+  Verarbeitung einer Nachricht, die gesendete Antwort und das Verwerfen fehlerhafter Nachrichten. Die Tests des
+  GenAI-Workers brauchen keinen API-Key.
 - **Echter OCR-Test** (`paperless-ocr-worker/tests/test_ocr.py`): erzeugt ein PDF mit bekanntem Text und lässt
   Poppler und Tesseract ohne Mocks darüber laufen. Lokal wird er übersprungen, wenn die Programme fehlen,
   in der CI läuft er immer.
@@ -86,8 +113,11 @@ die Volumes mit `docker compose down -v` löschen. RustFS liest sie bei jedem St
 Gemockt wird nur an den Systemgrenzen, die Unit-Tests brauchen also keine laufenden Dienste. Das Zusammenspiel
 aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
-**CI:** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push vier Jobs aus: REST-Server, OCR-Worker
-(installiert dafür `tesseract-ocr`, `tesseract-ocr-deu` und `poppler-utils`), Indexing-Worker und Web-UI.
+**Testabdeckung:** JaCoCo misst die Abdeckung des REST-Servers bei `./mvnw verify`, der Bericht liegt unter
+`paperless-rest/target/site/jacoco/index.html`. Stand Sprint 5: 84 Tests, 85 % der Zeilen und 82 % der Branches.
+
+**CI:** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push fünf Jobs aus: REST-Server, OCR-Worker
+(installiert dafür `tesseract-ocr`, `tesseract-ocr-deu` und `poppler-utils`), Indexing-Worker, GenAI-Worker und Web-UI.
 
 ## REST-API
 
@@ -102,8 +132,12 @@ aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in 
 | DELETE  | `/api/documents/{id}`                  | Dokument samt Verlauf, PDF und Suchindex | 204, 404, 503      |
 | PATCH   | `/api/documents/{id}/status`           | Status ändern                            | 200, 400, 404, 409 |
 | GET     | `/api/documents/{id}/history`          | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
+| POST    | `/api/documents/{id}/summary`          | Zusammenfassung neu erzeugen (z. B. nach einem Fehler) | 202, 404, 409, 503 |
 
 Ein Dokument enthält das Feld `content` mit dem OCR-Text. Es ist `null`, solange die OCR noch läuft.
+Dazu kommen `summary` (die Zusammenfassung) und `summaryError` (der Grund, falls sie fehlgeschlagen ist). Sind
+beide `null`, wird die Zusammenfassung noch erzeugt. `POST /{id}/summary` antwortet mit `409`, solange die OCR
+nicht fertig ist.
 
 Jeder Statuswechsel wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
 Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
@@ -126,6 +160,8 @@ Queues. Die PDFs liegen in RustFS im Bucket `documents`.
 | `ocr-queue`        | REST → OCR-Worker        | `{"documentId": 1, "fileName": "rechnung.pdf", "objectKey": "3f2c9a1e-….pdf"}`                 |
 | `ocr-result-queue` | OCR-Worker → REST        | `{"documentId": 1, "content": "Erkannter Text ..."}`                                          |
 | `index-queue`      | REST → Indexing-Worker   | `{"documentId": 1, "title": "Rechnung", "content": "Erkannter Text ..."}`                     |
+| `genai-queue`      | REST → GenAI-Worker      | `{"documentId": 1, "content": "Erkannter Text ..."}`                                          |
+| `genai-result-queue` | GenAI-Worker → REST    | `{"documentId": 1, "summary": "Kurze Zusammenfassung ...", "error": null}` bzw. `{"documentId": 1, "summary": null, "error": "Gemini error 429: Quota exceeded"}` |
 
 Ablauf beim Upload:
 
@@ -142,10 +178,17 @@ Ablauf beim Upload:
    Elasticsearch-ID.
 6. Die Suche der Web-UI fragt den REST-Server. Er holt die passenden IDs aus Elasticsearch und die Dokumente
    aus PostgreSQL.
+7. Zusammen mit Schritt 4 schickt der REST-Server den Text in die `genai-queue`. Ist der Text leer, schickt er
+   nichts und speichert sofort den Fehler „No text was found, so there is nothing to summarize“.
+8. Der GenAI-Worker schickt höchstens 50 000 Zeichen an Gemini (bis zu 3 Versuche bei 408, 429, 5xx und
+   Netzwerkfehlern) und schickt **immer** ein Ergebnis in die `genai-result-queue`: die Zusammenfassung oder den Fehler.
+9. Der REST-Server speichert `summary` bzw. `summaryError` und schreibt „Summary generated“ bzw. „Summary failed“
+   in den Verlauf.
 
-Beide Worker bestätigen eine verarbeitete Nachricht mit `ack`. Schlägt die Verarbeitung fehl (ungültiges JSON,
+Die Worker bestätigen eine verarbeitete Nachricht mit `ack`. Schlägt die Verarbeitung fehl (ungültiges JSON,
 fehlendes Feld, PDF nicht in RustFS, Elasticsearch-Fehler), loggen sie den Fehler als ERROR und verwerfen die
-Nachricht (`nack` ohne Requeue). Verlieren sie die Verbindung zu RabbitMQ, startet Docker sie neu.
+Nachricht (`nack` ohne Requeue). Fehler der Gemini-API verwirft der GenAI-Worker nicht, sondern schickt sie als
+Ergebnis zurück (siehe Design-Entscheidungen). Verlieren die Worker die Verbindung zu RabbitMQ, startet Docker sie neu.
 
 ## Validierung, Fehlerbehandlung und Logging
 
@@ -156,7 +199,7 @@ Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean V
 | Schicht      | Exception                                                                               | Antwort       |
 |--------------|-----------------------------------------------------------------------------------------|---------------|
 | Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
-| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidSearchQueryException`, `InvalidStatusChangeException` | 404, 400, 400, 409 |
+| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidSearchQueryException`, `InvalidStatusChangeException`, `DocumentNotReadyException` | 404, 400, 400, 409, 409 |
 | Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
 | Storage      | `StorageException` (RustFS nicht erreichbar)                                            | 503           |
 | Search       | `SearchException` (Elasticsearch nicht erreichbar)                                      | 503           |
@@ -164,7 +207,9 @@ Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean V
 
 Geloggt wird auf `INFO` für Abläufe (Upload, Statuswechsel, gesendete und empfangene Nachrichten), auf `WARN`
 für Client-Fehler wie 400, 404 und 409 und auf `ERROR` mit Stacktrace für Server-Fehler.
-Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw. `docker compose logs indexing-worker`.
+Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker`, `docker compose logs indexing-worker`
+bzw. `docker compose logs genai-worker`. Ein fehlgeschlagener Gemini-Aufruf erscheint im GenAI-Worker als ERROR mit
+Stacktrace und im REST-Server als WARN.
 
 ## Design-Entscheidungen
 
@@ -173,7 +218,7 @@ Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw.
   im Konstruktor übergeben, damit die Tests ihn ersetzen können.
 - **MapStruct statt handgeschriebener Mapper:** Die Mapper sind nur noch Interfaces, MapStruct erzeugt den Code
   beim Kompilieren. Vergessene Felder fallen dadurch als Warnung im Build auf.
-- **Listener in `presentation`:** Controller und `OcrResultListener` sind beide Eingänge von außen und rufen nur
+- **Listener in `presentation`:** Controller, `OcrResultListener` und `GenAiResultListener` sind Eingänge von außen und rufen nur
   den Service auf. Läge der Listener in `messaging`, gäbe es einen Paketzyklus `business` ↔ `messaging`.
 - **`MultipartFile` bleibt im Controller:** Die Business-Schicht bekommt ein `DocumentUploadDto` und bleibt
   unabhängig von HTTP.
@@ -207,6 +252,14 @@ Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw.
   und die Suche ist Teil der REST-API, als eigener `DocumentSearchService` neben dem `DocumentService`.
   Elasticsearch liefert nur die IDs in der Reihenfolge der Relevanz, die Daten kommen aus PostgreSQL. Gelöschte
   Dokumente fallen so heraus, auch wenn sie noch im Index stehen.
+- **Gemini-Fehler als Ergebnis statt `nack`:** Ein falscher Key, ein erschöpftes Kontingent oder ein Ausfall von
+  Gemini ist kein Fehler der Nachricht. Würde der Worker sie verwerfen, bliebe das Dokument für immer „in Arbeit“.
+  So sieht der Benutzer den Grund und kann die Zusammenfassung mit `POST /{id}/summary` neu anstoßen. Nur kaputte
+  Nachrichten (kein JSON, Feld fehlt) werden wie bei den anderen Workern verworfen.
+- **Retry im SDK:** Das offizielle SDK `google-genai` wiederholt Anfragen bei 408, 429, 5xx und Netzwerkfehlern
+  selbst (3 Versuche mit exponentiellem Backoff, 60 s Timeout pro Versuch). Eigener Retry-Code ist nicht nötig.
+- **Modell konfigurierbar:** Das Modell steht in `GEMINI_MODEL` (Default `gemini-3.8-flash`). Wird es abgekündigt,
+  reicht eine Änderung in der `.env`, der Code bleibt gleich.
 
 ## Bekannte Grenzen
 
@@ -221,9 +274,18 @@ Die Logs zeigt `docker compose logs rest`, `docker compose logs ocr-worker` bzw.
   stehen als Defaults im Klartext in `docker-compose.yml` (bzw. in der `.env`).
 - **Suche erst nach dem Indexieren:** Ein frisch hochgeladenes Dokument wird erst gefunden, wenn OCR und
   Indexierung fertig sind.
+- **Free Tier von Gemini:** Das kostenlose Kontingent ist begrenzt (aktuelle Werte unter
+  https://aistudio.google.com/rate-limit). Bei vielen Uploads oder hoher Last bei Google antwortet Gemini mit 429
+  bzw. 503. Nach den 3 Versuchen bekommt das Dokument dann einen `summaryError` und kann neu angestoßen werden.
+- **Datenschutz:** Im Free Tier darf Google die gesendeten Texte zur Verbesserung seiner Modelle nutzen. Keine
+  vertraulichen PDFs hochladen.
+- **Lange Texte werden gekürzt:** An Gemini gehen höchstens die ersten 50 000 Zeichen eines Dokuments.
 
 ## Lessons Learned
 
-- Schnittstellen vorher gemeinsam festlegen
+- Schnittstellen vorher gemeinsam festlegen: Durch den festgelegten Nachrichtenvertrag ließen sich GenAI-Worker
+  und REST-Server einzeln testen, mit Testnachrichten über die RabbitMQ-Oberfläche.
 - Merges prüfen: Ein Konflikt hat alte README-Abschnitte zurückgebracht
 - Pull Requests und CI früh nutzen, statt lokal zu mergen.
+- Externe APIs können jederzeit ausfallen: Gemini hat beim Testen mehrfach mit 503 („high demand“) geantwortet.
+  Fehler zu speichern und neu anstoßen zu können war wichtiger als der Erfolgsfall.

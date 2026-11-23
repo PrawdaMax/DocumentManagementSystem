@@ -61,6 +61,11 @@ export function changeStatus(id: number, status: DocumentStatus, comment: string
     return request<DocumentDto>(`/${id}/status`, 'PATCH', { status, comment });
 }
 
+// Zusammenfassung nach einem Fehler neu erzeugen lassen, der REST-Server antwortet mit 202 und dem Dokument
+export function retrySummary(id: number) {
+    return request<DocumentDto>(`/${id}/summary`, 'POST');
+}
+
 export function getHistory(id: number) {
     return request<DocumentHistoryDto[]>(`/${id}/history`);
 }
