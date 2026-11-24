@@ -1,6 +1,6 @@
 import { File, Paths } from 'expo-file-system';
 import { router, useFocusEffect, useLocalSearchParams } from 'expo-router';
-import { type ReactNode, useCallback, useEffect, useState } from 'react';
+import { type ReactNode, useCallback, useState } from 'react';
 import { Alert, RefreshControl, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import {
@@ -22,7 +22,8 @@ import { EditTitleModal } from '@/components/EditTitleModal';
 import { ErrorBox } from '@/components/ErrorBox';
 import { StatusBadge } from '@/components/StatusBadge';
 import { StatusChange } from '@/components/StatusChange';
-import { COLORS, STATUS, formatBytes, formatDate } from '@/theme';
+import { COLORS, STATUS, formatBytes, formatDate, lockHint } from '@/theme';
+import { useAutoRefresh } from '@/useAutoRefresh';
 
 export default function DocumentScreen() {
     const { id } = useLocalSearchParams<{ id: string }>();
@@ -53,11 +54,7 @@ export default function DocumentScreen() {
         }, [load]),
     );
 
-    useEffect(() => {
-        if (!polling) return;
-        const timer = setInterval(load, 3000);
-        return () => clearInterval(timer);
-    }, [polling, load]);
+    useAutoRefresh(load, polling ? 3000 : 10000);
 
     if (!document) {
         return (
@@ -139,9 +136,12 @@ export default function DocumentScreen() {
 
                 <View style={styles.buttons}>
                     <AppButton title="Open PDF" onPress={openPdf} />
-                    <AppButton title="Edit" onPress={() => setEditing(true)} />
-                    <AppButton title="Delete" variant="danger" onPress={confirmDelete} />
+                    {STATUS[doc.status].canEdit && <AppButton title="Edit" onPress={() => setEditing(true)} />}
+                    {STATUS[doc.status].canDelete && (
+                        <AppButton title="Delete" variant="danger" onPress={confirmDelete} />
+                    )}
                 </View>
+                {lockHint(doc.status) && <Text style={styles.hint}>{lockHint(doc.status)}</Text>}
 
                 <ErrorBox text={error} />
 
@@ -163,7 +163,9 @@ export default function DocumentScreen() {
                                 <Text style={styles.summaryErrorText}>
                                     Summary could not be generated: {doc.summaryError}
                                 </Text>
-                                <AppButton title="Retry summary" variant="danger" onPress={retry} disabled={retrying} />
+                                {STATUS[doc.status].canEdit && (
+                                    <AppButton title="Retry summary" variant="danger" onPress={retry} disabled={retrying} />
+                                )}
                             </View>
                         )}
                         {state === 'pending' && <Text style={styles.italic}>Summary is being generated…</Text>}
@@ -195,7 +197,10 @@ export default function DocumentScreen() {
                     {history.map((entry) => (
                         <View key={entry.id} style={styles.historyEntry}>
                             <View style={styles.historyHeader}>
-                                <Text style={styles.historyStatus}>{STATUS[entry.status].label}</Text>
+                                <Text style={styles.historyStatus}>
+                                    {STATUS[entry.status].label}
+                                    {entry.changedBy && <Text style={styles.historyBy}> by {entry.changedBy}</Text>}
+                                </Text>
                                 <Text style={styles.small}>{formatDate(entry.changedAt)}</Text>
                             </View>
                             {entry.comment && <Text style={styles.historyComment}>{entry.comment}</Text>}
@@ -259,5 +264,7 @@ const styles = StyleSheet.create({
     historyEntry: { gap: 2, borderLeftWidth: 2, borderLeftColor: COLORS.primaryLight, paddingLeft: 12 },
     historyHeader: { flexDirection: 'row', justifyContent: 'space-between', gap: 8 },
     historyStatus: { fontSize: 12, fontWeight: 'bold', color: COLORS.text },
+    historyBy: { fontWeight: 'normal', color: COLORS.muted },
+    hint: { marginTop: -8, fontSize: 12, fontStyle: 'italic', color: COLORS.light },
     historyComment: { fontSize: 12, fontStyle: 'italic', color: COLORS.label },
 });

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate } from 'react-router';
 import * as api from '../api';
 import { Alert } from '../components/Alert';
@@ -6,6 +6,7 @@ import { DocumentForm } from '../components/DocumentForm';
 import { StatusBadge } from '../components/StatusBadge';
 import { formatBytes, formatDate } from '../format';
 import type { DocumentDto } from '../types';
+import { useAutoRefresh } from '../useAutoRefresh';
 
 export function DashboardPage() {
     const navigate = useNavigate();
@@ -16,18 +17,22 @@ export function DashboardPage() {
 
     // Ohne Suchbegriff alle Dokumente laden, sonst den REST-Server suchen lassen.
     // Die Anfrage geht erst 300 ms nach dem letzten Tastendruck raus.
-    useEffect(() => {
+    const loadDocuments = useCallback(() => {
         const query = search.trim();
-        const timeout = setTimeout(() => {
-            (query ? api.searchDocuments(query) : api.getDocuments())
-                .then(result => {
-                    setDocuments(result);
-                    setError('');
-                })
-                .catch(err => setError(err.message));
-        }, query ? 300 : 0);
-        return () => clearTimeout(timeout);
+        (query ? api.searchDocuments(query) : api.getDocuments())
+            .then(result => {
+                setDocuments(result);
+                setError('');
+            })
+            .catch(err => setError(err.message));
     }, [search]);
+
+    useEffect(() => {
+        const timeout = setTimeout(loadDocuments, search.trim() ? 300 : 0);
+        return () => clearTimeout(timeout);
+    }, [loadDocuments, search]);
+
+    useAutoRefresh(loadDocuments, 10000);
 
     async function uploadDocument(title: string, file: File) {
         const created = await api.uploadDocument(title, file);

@@ -48,6 +48,9 @@ public class DocumentHistoryEntity {
     @Column(length = 500)
     private String comment;
 
+    @Column(length = 100)
+    private String changedBy;
+
     @PrePersist
     void onCreate() {
         changedAt = Instant.now().truncatedTo(ChronoUnit.MICROS);

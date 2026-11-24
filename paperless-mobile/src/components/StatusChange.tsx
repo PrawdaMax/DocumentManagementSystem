@@ -2,6 +2,7 @@ import { useState } from 'react';
 import { StyleSheet, Text, TextInput, View } from 'react-native';
 import type { DocumentStatus } from '@/api';
 import { AppButton } from '@/components/AppButton';
+import { ErrorBox } from '@/components/ErrorBox';
 import { COLORS, STATUS } from '@/theme';
 
 interface StatusChangeProps {
@@ -11,9 +12,15 @@ interface StatusChangeProps {
 
 export function StatusChange({ status, onChange }: StatusChangeProps) {
     const [comment, setComment] = useState('');
+    const [error, setError] = useState<string | null>(null);
     const nextStatuses = STATUS[status].next;
 
     async function changeTo(next: DocumentStatus) {
+        if (next === 'REJECTED' && !comment.trim()) {
+            setError('Please enter a reason to reject the document.');
+            return;
+        }
+        setError(null);
         await onChange(next, comment.trim() || null);
         setComment('');
     }
@@ -24,11 +31,12 @@ export function StatusChange({ status, onChange }: StatusChangeProps) {
 
     return (
         <View style={styles.container}>
+            <ErrorBox text={error} />
             <TextInput
                 style={styles.comment}
                 value={comment}
                 onChangeText={setComment}
-                placeholder="Comment (optional, max. 500 characters)"
+                placeholder="Comment (required for Rejected, max. 500 characters)"
                 placeholderTextColor={COLORS.light}
                 maxLength={500}
                 multiline

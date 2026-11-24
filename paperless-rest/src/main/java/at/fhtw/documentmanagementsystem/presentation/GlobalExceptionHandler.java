@@ -1,5 +1,6 @@
 package at.fhtw.documentmanagementsystem.presentation;
 
+import at.fhtw.documentmanagementsystem.business.exception.DocumentLockedException;
 import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidSearchQueryException;
@@ -54,6 +55,12 @@ public class GlobalExceptionHandler extends ResponseEntityExceptionHandler {
     @ExceptionHandler(DocumentNotReadyException.class)
     public ProblemDetail handleDocumentNotReady(DocumentNotReadyException exception) {
         log.warn("Document not ready: {}", exception.getMessage());
+        return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
+    }
+
+    @ExceptionHandler(DocumentLockedException.class)
+    public ProblemDetail handleDocumentLocked(DocumentLockedException exception) {
+        log.warn("Document locked: {}", exception.getMessage());
         return ProblemDetail.forStatusAndDetail(HttpStatus.CONFLICT, exception.getMessage());
     }
 

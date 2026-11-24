@@ -36,6 +36,19 @@ class DocumentUploadValidatorTest {
     }
 
     @Test
+    void validate_nameLongerThan100Characters_throwsInvalidDocumentException() {
+        DocumentUploadDto dto = DocumentUploadDto.builder()
+                .fileName("rechnung.pdf")
+                .fileContent("%PDF-1.4 test".getBytes(StandardCharsets.UTF_8))
+                .changedBy("a".repeat(101))
+                .build();
+
+        assertThatThrownBy(() -> validator.validate(dto))
+                .isInstanceOf(InvalidDocumentException.class)
+                .hasMessage("Name must not be longer than 100 characters");
+    }
+
+    @Test
     void validate_titleLongerThan255Characters_throwsInvalidDocumentException() {
         DocumentUploadDto dto = DocumentUploadDto.builder()
                 .title("a".repeat(256))

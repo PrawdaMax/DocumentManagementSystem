@@ -19,4 +19,7 @@ public class StatusChangeDto {
 
     @Size(max = 500)
     private String comment;
+
+    @Size(max = 100)
+    private String changedBy;
 }

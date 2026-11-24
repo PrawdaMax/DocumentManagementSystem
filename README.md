@@ -114,7 +114,7 @@ Gemockt wird nur an den Systemgrenzen, die Unit-Tests brauchen also keine laufen
 aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in Sprint 6.
 
 **Testabdeckung:** JaCoCo misst die Abdeckung des REST-Servers bei `./mvnw verify`, der Bericht liegt unter
-`paperless-rest/target/site/jacoco/index.html`. Stand Sprint 5: 84 Tests, 85 % der Zeilen und 82 % der Branches.
+`paperless-rest/target/site/jacoco/index.html`. Stand Sprint 5: 91 Tests, 86 % der Zeilen und 85 % der Branches.
 
 **CI:** GitHub Actions (`.github/workflows/ci.yml`) führt bei jedem Push fünf Jobs aus: REST-Server, OCR-Worker
 (installiert dafür `tesseract-ocr`, `tesseract-ocr-deu` und `poppler-utils`), Indexing-Worker, GenAI-Worker und Web-UI.
@@ -127,10 +127,10 @@ aller Services prüfen wir von Hand, automatisierte Integrationstests folgen in 
 | GET     | `/api/documents/search?query={text}`   | Volltextsuche in Titel und OCR-Text, unscharf, beste Treffer zuerst | 200, 400, 503 |
 | GET     | `/api/documents/{id}`                  | Ein Dokument                             | 200, 404           |
 | GET     | `/api/documents/{id}/file`             | Das PDF, öffnet sich im Browser          | 200, 404, 503      |
-| POST    | `/api/documents`                       | PDF hochladen (`file`, optional `title`) | 201, 400, 413, 503 |
-| PUT     | `/api/documents/{id}`                  | Titel ändern                             | 200, 400, 404, 503 |
-| DELETE  | `/api/documents/{id}`                  | Dokument samt Verlauf, PDF und Suchindex | 204, 404, 503      |
-| PATCH   | `/api/documents/{id}/status`           | Status ändern                            | 200, 400, 404, 409 |
+| POST    | `/api/documents`                       | PDF hochladen (`file`, optional `title` und `changedBy`) | 201, 400, 413, 503 |
+| PUT     | `/api/documents/{id}`                  | Titel ändern                             | 200, 400, 404, 409, 503 |
+| DELETE  | `/api/documents/{id}`                  | Dokument samt Verlauf, PDF und Suchindex | 204, 404, 409, 503 |
+| PATCH   | `/api/documents/{id}/status`           | Status ändern (`status`, optional `comment` und `changedBy`) | 200, 400, 404, 409 |
 | GET     | `/api/documents/{id}/history`          | Statusverlauf, neuester Eintrag zuerst   | 200, 404           |
 | POST    | `/api/documents/{id}/summary`          | Zusammenfassung neu erzeugen (z. B. nach einem Fehler) | 202, 404, 409, 503 |
 
@@ -139,12 +139,31 @@ Dazu kommen `summary` (die Zusammenfassung) und `summaryError` (der Grund, falls
 beide `null`, wird die Zusammenfassung noch erzeugt. `POST /{id}/summary` antwortet mit `409`, solange die OCR
 nicht fertig ist.
 
-Jeder Statuswechsel wird mit Zeitpunkt und optionalem Kommentar im Verlauf gespeichert.
+### Prüf-Workflow (zusätzlicher Use Case)
+
+Jedes Dokument durchläuft einen Prüfablauf: Das System liest den Text und fasst ihn zusammen, danach prüft ein
+Mensch das Dokument und gibt es frei oder lehnt es ab. Freigegebene Dokumente werden archiviert und sind dann
+schreibgeschützt. Der Verlauf zeigt jeden Schritt mit Zeitpunkt, Kommentar und Namen.
+
+- **Automatisch bis zur Prüfung:** Nach dem Upload steht ein Dokument auf `PROCESSING` (Uhr-Symbol), solange OCR
+  und Zusammenfassung laufen. Ist die Zusammenfassung fertig oder fehlgeschlagen, oder wurde kein Text gefunden,
+  setzt der Server es auf `IN_REVIEW`. Während der Verarbeitung ist nur `REJECTED` möglich, z. B. wenn ein Auftrag
+  hängen bleibt.
+- **Ablehnen nur mit Begründung:** `REJECTED` braucht einen Kommentar, sonst antwortet der Server mit `409`.
+- **Archiviert ist schreibgeschützt:** Bei `ARCHIVED` lehnt der Server Titeländerung und neue Zusammenfassung mit
+  `409` ab.
+- **Löschen nur bei `RECEIVED` oder `REJECTED`**, sonst `409`. Ein geprüftes Dokument muss erst abgelehnt werden.
+- **Name im Verlauf:** Es gibt keine Benutzerverwaltung. Web-UI und App fragen einmal nach dem Namen und speichern
+  ihn lokal (Browser: `localStorage`, App: AsyncStorage auf dem Gerät, bleibt nach Neustart und Updates erhalten).
+  Beim Upload und bei jedem Statuswechsel schicken sie ihn als `changedBy` mit. Einträge der Verarbeitung (OCR,
+  Zusammenfassung) haben keinen Namen.
+
 Nicht erlaubte Wechsel lehnt der Server mit `409` ab:
 
 | Status                       | Erlaubte Wechsel        |
 |------------------------------|-------------------------|
-| `RECEIVED` (nach dem Upload) | `IN_REVIEW`, `REJECTED` |
+| `RECEIVED` (Eingang)         | `IN_REVIEW`, `REJECTED` |
+| `PROCESSING` (automatisch)   | `REJECTED`              |
 | `IN_REVIEW`                  | `DONE`, `REJECTED`      |
 | `REJECTED`                   | `IN_REVIEW`             |
 | `DONE`                       | `ARCHIVED`              |
@@ -167,7 +186,8 @@ Ablauf beim Upload:
 
 1. Der REST-Server prüft die Datei (Endung `.pdf` und Magic Bytes `%PDF-`) und legt das PDF unter
    `<UUID>.pdf` in RustFS ab. Ist RustFS nicht erreichbar, entsteht nichts, und der Client bekommt `503`.
-2. Danach speichert er das Dokument mit Status `RECEIVED` und schickt in derselben Transaktion den Auftrag in die
+2. Danach speichert er das Dokument mit Status `RECEIVED` und gleich danach `PROCESSING` und schickt in derselben
+   Transaktion den Auftrag in die
    `ocr-queue`. Ist RabbitMQ nicht erreichbar, wird das Speichern zurückgerollt, das PDF wieder gelöscht, und der
    Client bekommt `503`.
 3. Der OCR-Worker lädt das PDF aus RustFS, wandelt jede Seite mit Poppler in ein Bild (300 dpi) und liest den
@@ -179,11 +199,12 @@ Ablauf beim Upload:
 6. Die Suche der Web-UI fragt den REST-Server. Er holt die passenden IDs aus Elasticsearch und die Dokumente
    aus PostgreSQL.
 7. Zusammen mit Schritt 4 schickt der REST-Server den Text in die `genai-queue`. Ist der Text leer, schickt er
-   nichts und speichert sofort den Fehler „No text was found, so there is nothing to summarize“.
+   nichts, speichert sofort den Fehler „No text was found, so there is nothing to summarize“ und setzt den Status
+   auf `IN_REVIEW`.
 8. Der GenAI-Worker schickt höchstens 50 000 Zeichen an Gemini (bis zu 3 Versuche bei 408, 429, 5xx und
    Netzwerkfehlern) und schickt **immer** ein Ergebnis in die `genai-result-queue`: die Zusammenfassung oder den Fehler.
-9. Der REST-Server speichert `summary` bzw. `summaryError` und schreibt „Summary generated“ bzw. „Summary failed“
-   in den Verlauf.
+9. Der REST-Server speichert `summary` bzw. `summaryError`, setzt den Status von `PROCESSING` auf `IN_REVIEW` und
+   schreibt „Summary generated“ bzw. „Summary failed“ in den Verlauf.
 
 Die Worker bestätigen eine verarbeitete Nachricht mit `ack`. Schlägt die Verarbeitung fehl (ungültiges JSON,
 fehlendes Feld, PDF nicht in RustFS, Elasticsearch-Fehler), loggen sie den Fehler als ERROR und verwerfen die
@@ -193,13 +214,13 @@ Ergebnis zurück (siehe Design-Entscheidungen). Verlieren die Worker die Verbind
 ## Validierung, Fehlerbehandlung und Logging
 
 Eingaben werden mehrfach geprüft: im Formular der Web-UI, im Controller (Bean Validation) und im Service
-(PDF-Prüfung, Länge von Titel, Dateiname und Suchanfrage, erlaubte Statuswechsel). Jede Schicht hat eigene Exceptions, nur der `GlobalExceptionHandler`
+(PDF-Prüfung, Länge von Titel, Dateiname, Name und Suchanfrage, erlaubte Statuswechsel, Regeln des Prüf-Workflows). Jede Schicht hat eigene Exceptions, nur der `GlobalExceptionHandler`
 übersetzt sie in HTTP-Antworten:
 
 | Schicht      | Exception                                                                               | Antwort       |
 |--------------|-----------------------------------------------------------------------------------------|---------------|
 | Persistence  | `DataAccessException` (von Spring)                                                      | 500           |
-| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidSearchQueryException`, `InvalidStatusChangeException`, `DocumentNotReadyException` | 404, 400, 400, 409, 409 |
+| Business     | `ResourceNotFoundException`, `InvalidDocumentException`, `InvalidSearchQueryException`, `InvalidStatusChangeException`, `DocumentNotReadyException`, `DocumentLockedException` | 404, 400, 400, 409, 409, 409 |
 | Messaging    | `MessagePublishException` (RabbitMQ nicht erreichbar)                                   | 503           |
 | Storage      | `StorageException` (RustFS nicht erreichbar)                                            | 503           |
 | Search       | `SearchException` (Elasticsearch nicht erreichbar)                                      | 503           |
@@ -260,6 +281,10 @@ Stacktrace und im REST-Server als WARN.
   selbst (3 Versuche mit exponentiellem Backoff, 60 s Timeout pro Versuch). Eigener Retry-Code ist nicht nötig.
 - **Modell konfigurierbar:** Das Modell steht in `GEMINI_MODEL` (Default `gemini-3.8-flash`). Wird es abgekündigt,
   reicht eine Änderung in der `.env`, der Code bleibt gleich.
+- **Automatisch aktualisieren durch Nachfragen:** Web-UI und App laden Liste und Detailseite alle 10 Sekunden neu
+  (während der Verarbeitung öfter) und sofort, wenn der Tab bzw. die App wieder in den Vordergrund kommt. So sieht
+  man auch Änderungen aus einem anderen Browser oder vom Handy. Push vom Server (z. B. Server-Sent Events) wäre
+  sofort, braucht aber mehr Code im REST-Server, in nginx und in beiden Clients.
 
 ## Bekannte Grenzen
 

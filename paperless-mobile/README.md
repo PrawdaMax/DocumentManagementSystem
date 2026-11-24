@@ -9,8 +9,13 @@ und Android und spricht wie die Web-UI über nginx (Port 80, `/api`) mit dem RES
 - PDF-Upload mit optionalem Titel
 - Detailseite mit Metadaten, Zusammenfassung („Retry summary“ nach einem Fehler), erkanntem Text in einer
   scrollbaren Box, Statuswechsel mit Kommentar und Verlauf
-- Titel bearbeiten, Dokument löschen, PDF öffnen
-- Die Detailseite aktualisiert sich selbst, solange OCR oder Zusammenfassung laufen
+- Titel bearbeiten, Dokument löschen, PDF öffnen, mit denselben Regeln wie in der Web-UI: Ablehnen nur mit
+  Begründung, archivierte Dokumente sind schreibgeschützt, Löschen nur bei „Received“ oder „Rejected“
+- Eigener Name oben in der Liste („Your name“): wird auf dem Gerät gespeichert (AsyncStorage, bleibt nach Neustart
+  und Updates erhalten) und bei Upload und Statuswechsel im Verlauf angezeigt
+- Liste und Detailseite aktualisieren sich selbst: alle 10 Sekunden (während der Verarbeitung alle 3 Sekunden) und
+  sofort, wenn die App wieder in den Vordergrund kommt
+- Status „Processing“ mit Uhr-Symbol, solange OCR und Zusammenfassung laufen, danach automatisch „In Review“
 
 ## Voraussetzungen
 
@@ -50,11 +55,14 @@ Die IP steht in der Ausgabe von `npm start` (`exp://<IP>:8082`).
 
 ```
 src/api.ts                   REST-Aufrufe, Typen, summaryState()
-src/theme.ts                 Farben wie in der Web-UI, Status-Tabelle, Formularstile, Formatierung
+src/theme.ts                 Farben wie in der Web-UI, Status-Tabelle mit Regeln, Formularstile, Formatierung
+src/userName.ts              eigener Name, gespeichert mit AsyncStorage
+src/useAutoRefresh.ts        automatisches Neuladen (Intervall und Rückkehr in die App)
 src/app/_layout.tsx          Navigation (Expo Router) und Kopfzeile
 src/app/index.tsx            Dokumentliste, Suche, Upload
 src/app/documents/[id].tsx   Detailseite
-src/components/              AppButton, Dialog, EditTitleModal, ErrorBox, StatusBadge, StatusChange, UploadModal
+src/components/              AppButton, Dialog, EditTitleModal, ErrorBox, StatusBadge, StatusChange, UploadModal,
+                             UserNameModal
 ```
 
 ## Prüfen
