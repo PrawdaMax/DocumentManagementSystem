@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { STATUS } from '../status';
+import { Alert } from './Alert';
 import type { DocumentStatus } from '../types';
 
 interface StatusChangeProps {
@@ -9,9 +10,15 @@ interface StatusChangeProps {
 
 export function StatusChange({ status, onChange }: StatusChangeProps) {
     const [comment, setComment] = useState('');
+    const [error, setError] = useState('');
     const nextStatuses = STATUS[status].next;
 
     async function changeTo(next: DocumentStatus) {
+        if (next === 'REJECTED' && !comment.trim()) {
+            setError('Please enter a reason to reject the document.');
+            return;
+        }
+        setError('');
         await onChange(next, comment.trim() || null);
         setComment('');
     }
@@ -22,10 +29,11 @@ export function StatusChange({ status, onChange }: StatusChangeProps) {
 
     return (
         <div className="space-y-2">
+            <Alert text={error} />
             <textarea
                 value={comment}
                 onChange={e => setComment(e.target.value)}
-                placeholder="Comment (optional, max. 500 characters)"
+                placeholder="Comment (required for Rejected, max. 500 characters)"
                 maxLength={500}
                 rows={2}
                 className="w-full rounded-md border border-slate-300 p-2 text-xs"

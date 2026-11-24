@@ -32,13 +32,30 @@ export const FORM = StyleSheet.create({
     },
 });
 
-export const STATUS: Record<DocumentStatus, { label: string; background: string; color: string; next: DocumentStatus[] }> = {
-    RECEIVED: { label: 'Received', background: '#f1f5f9', color: '#1e293b', next: ['IN_REVIEW', 'REJECTED'] },
-    IN_REVIEW: { label: 'In Review', background: '#dbeafe', color: '#1e40af', next: ['DONE', 'REJECTED'] },
-    DONE: { label: 'Done', background: '#d1fae5', color: '#065f46', next: ['ARCHIVED'] },
-    REJECTED: { label: 'Rejected', background: '#ffe4e6', color: '#9f1239', next: ['IN_REVIEW'] },
-    ARCHIVED: { label: 'Archived', background: '#f3e8ff', color: '#6b21a8', next: [] },
+interface StatusInfo {
+    label: string;
+    background: string;
+    color: string;
+    next: DocumentStatus[];
+    canEdit: boolean;
+    canDelete: boolean;
+}
+
+export const STATUS: Record<DocumentStatus, StatusInfo> = {
+    RECEIVED: { label: 'Received', background: '#f1f5f9', color: '#1e293b', next: ['IN_REVIEW', 'REJECTED'], canEdit: true, canDelete: true },
+    PROCESSING: { label: 'Processing', background: '#fef3c7', color: '#92400e', next: ['REJECTED'], canEdit: true, canDelete: false },
+    IN_REVIEW: { label: 'In Review', background: '#dbeafe', color: '#1e40af', next: ['DONE', 'REJECTED'], canEdit: true, canDelete: false },
+    DONE: { label: 'Done', background: '#d1fae5', color: '#065f46', next: ['ARCHIVED'], canEdit: true, canDelete: false },
+    REJECTED: { label: 'Rejected', background: '#ffe4e6', color: '#9f1239', next: ['IN_REVIEW'], canEdit: true, canDelete: true },
+    ARCHIVED: { label: 'Archived', background: '#f3e8ff', color: '#6b21a8', next: [], canEdit: false, canDelete: false },
 };
+
+export function lockHint(status: DocumentStatus) {
+    if (!STATUS[status].canEdit) return 'Archived documents are read-only.';
+    if (status === 'PROCESSING') return 'Text recognition and summary are running, then the status changes to In Review.';
+    if (!STATUS[status].canDelete) return 'Only received or rejected documents can be deleted.';
+    return null;
+}
 
 export function formatBytes(bytes: number | null): string {
     if (bytes === null) return 'Unknown size';

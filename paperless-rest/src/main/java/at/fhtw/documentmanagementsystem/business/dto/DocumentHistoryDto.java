@@ -21,4 +21,6 @@ public class DocumentHistoryDto {
     private Instant changedAt;
 
     private String comment;
+
+    private String changedBy;
 }

@@ -1,9 +1,10 @@
 import Constants from 'expo-constants';
+import { getUserName } from '@/userName';
 
 const host = Constants.expoConfig?.hostUri?.split(':')[0] ?? 'localhost';
 const API_URL = process.env.EXPO_PUBLIC_API_URL ?? `http://${host}/api/documents`;
 
-export type DocumentStatus = 'RECEIVED' | 'IN_REVIEW' | 'DONE' | 'REJECTED' | 'ARCHIVED';
+export type DocumentStatus = 'RECEIVED' | 'PROCESSING' | 'IN_REVIEW' | 'DONE' | 'REJECTED' | 'ARCHIVED';
 
 export interface DocumentDto {
     id: number;
@@ -23,6 +24,7 @@ export interface DocumentHistoryDto {
     status: DocumentStatus;
     changedAt: string;
     comment: string | null;
+    changedBy?: string | null;
 }
 
 async function request<T>(path: string, method = 'GET', body?: object): Promise<T> {
@@ -62,7 +64,7 @@ export function updateDocument(id: number, title: string) {
 }
 
 export function changeStatus(id: number, status: DocumentStatus, comment: string | null) {
-    return request<DocumentDto>(`/${id}/status`, 'PATCH', { status, comment });
+    return request<DocumentDto>(`/${id}/status`, 'PATCH', { status, comment, changedBy: getUserName() || null });
 }
 
 export function deleteDocument(id: number) {
@@ -77,6 +79,9 @@ export function uploadDocument(uri: string, name: string, title: string) {
     const formData = new FormData();
     if (title) {
         formData.append('title', title);
+    }
+    if (getUserName()) {
+        formData.append('changedBy', getUserName());
     }
     formData.append('file', { uri, name, type: 'application/pdf' } as unknown as Blob);
     return new Promise<DocumentDto>((resolve, reject) => {

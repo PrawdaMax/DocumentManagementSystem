@@ -1,4 +1,4 @@
-export type DocumentStatus = 'RECEIVED' | 'IN_REVIEW' | 'DONE' | 'REJECTED' | 'ARCHIVED';
+export type DocumentStatus = 'RECEIVED' | 'PROCESSING' | 'IN_REVIEW' | 'DONE' | 'REJECTED' | 'ARCHIVED';
 
 export interface DocumentDto {
     id: number;
@@ -24,4 +24,5 @@ export interface DocumentHistoryDto {
     status: DocumentStatus;
     changedAt: string;
     comment: string | null;
+    changedBy?: string | null;
 }
