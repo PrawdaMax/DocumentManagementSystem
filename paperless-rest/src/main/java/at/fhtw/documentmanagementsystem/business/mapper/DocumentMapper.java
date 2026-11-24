@@ -22,6 +22,8 @@ public interface DocumentMapper {
     @Mapping(target = "history", ignore = true)
     @Mapping(target = "objectKey", ignore = true)
     @Mapping(target = "content", ignore = true)
+    @Mapping(target = "summary", ignore = true)
+    @Mapping(target = "summaryError", ignore = true)
     @Mapping(target = "title", expression = "java(uploadDto.titleOrFileName())")
     @Mapping(target = "contentType", constant = "application/pdf")
     @Mapping(target = "fileSize", expression = "java(uploadDto.getFileContent() != null ? (long) uploadDto.getFileContent().length : 0L)")

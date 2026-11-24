@@ -1,4 +1,5 @@
 import type { DocumentDto, DocumentHistoryDto, DocumentStatus, DocumentUpdateDto } from './types';
+import { getUserName } from './userName';
 
 async function request<T>(path: string, method = 'GET', body?: object | FormData): Promise<T> {
     const isFormData = body instanceof FormData;
@@ -46,6 +47,9 @@ export function uploadDocument(title: string, file: File) {
     const formData = new FormData();
     formData.append('title', title);
     formData.append('file', file);
+    if (getUserName()) {
+        formData.append('changedBy', getUserName());
+    }
     return request<DocumentDto>('', 'POST', formData);
 }
 
@@ -58,7 +62,12 @@ export function deleteDocument(id: number) {
 }
 
 export function changeStatus(id: number, status: DocumentStatus, comment: string | null) {
-    return request<DocumentDto>(`/${id}/status`, 'PATCH', { status, comment });
+    return request<DocumentDto>(`/${id}/status`, 'PATCH', { status, comment, changedBy: getUserName() || null });
+}
+
+// Zusammenfassung nach einem Fehler neu erzeugen lassen, der REST-Server antwortet mit 202 und dem Dokument
+export function retrySummary(id: number) {
+    return request<DocumentDto>(`/${id}/summary`, 'POST');
 }
 
 export function getHistory(id: number) {

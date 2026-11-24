@@ -11,6 +11,7 @@ public class DocumentUploadValidator {
 
     private static final String PDF_MAGIC_BYTES = "%PDF-";
     private static final int MAX_LENGTH = 255;
+    private static final int MAX_NAME_LENGTH = 100;
 
     public void validate(DocumentUploadDto uploadDto) {
         if (uploadDto == null) {
@@ -18,6 +19,9 @@ public class DocumentUploadValidator {
         }
         if (uploadDto.getTitle() != null && uploadDto.getTitle().length() > MAX_LENGTH) {
             throw new InvalidDocumentException("Title must not be longer than " + MAX_LENGTH + " characters");
+        }
+        if (uploadDto.getChangedBy() != null && uploadDto.getChangedBy().length() > MAX_NAME_LENGTH) {
+            throw new InvalidDocumentException("Name must not be longer than " + MAX_NAME_LENGTH + " characters");
         }
         if (uploadDto.getFileName() == null || uploadDto.getFileName().isBlank()) {
             throw new InvalidDocumentException("File name must not be blank");

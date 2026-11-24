@@ -1,0 +1,67 @@
+import { useState } from 'react';
+import { StyleSheet, Text, TextInput, View } from 'react-native';
+import type { DocumentStatus } from '@/api';
+import { AppButton } from '@/components/AppButton';
+import { ErrorBox } from '@/components/ErrorBox';
+import { COLORS, STATUS } from '@/theme';
+
+interface StatusChangeProps {
+    status: DocumentStatus;
+    onChange: (status: DocumentStatus, comment: string | null) => Promise<void>;
+}
+
+export function StatusChange({ status, onChange }: StatusChangeProps) {
+    const [comment, setComment] = useState('');
+    const [error, setError] = useState<string | null>(null);
+    const nextStatuses = STATUS[status].next;
+
+    async function changeTo(next: DocumentStatus) {
+        if (next === 'REJECTED' && !comment.trim()) {
+            setError('Please enter a reason to reject the document.');
+            return;
+        }
+        setError(null);
+        await onChange(next, comment.trim() || null);
+        setComment('');
+    }
+
+    if (nextStatuses.length === 0) {
+        return <Text style={styles.final}>{STATUS[status].label} is a final status.</Text>;
+    }
+
+    return (
+        <View style={styles.container}>
+            <ErrorBox text={error} />
+            <TextInput
+                style={styles.comment}
+                value={comment}
+                onChangeText={setComment}
+                placeholder="Comment (required for Rejected, max. 500 characters)"
+                placeholderTextColor={COLORS.light}
+                maxLength={500}
+                multiline
+            />
+            <View style={styles.buttons}>
+                {nextStatuses.map((next) => (
+                    <AppButton key={next} title={`Move to ${STATUS[next].label}`} onPress={() => changeTo(next)} />
+                ))}
+            </View>
+        </View>
+    );
+}
+
+const styles = StyleSheet.create({
+    container: { gap: 8 },
+    comment: {
+        minHeight: 56,
+        borderWidth: 1,
+        borderColor: COLORS.border,
+        borderRadius: 6,
+        padding: 8,
+        fontSize: 13,
+        color: COLORS.text,
+        textAlignVertical: 'top',
+    },
+    buttons: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+    final: { fontSize: 13, fontStyle: 'italic', color: COLORS.light },
+});

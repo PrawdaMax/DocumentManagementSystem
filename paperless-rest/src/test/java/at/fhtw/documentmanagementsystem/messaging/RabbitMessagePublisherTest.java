@@ -40,6 +40,15 @@ class RabbitMessagePublisherTest {
     }
 
     @Test
+    void sendGenAiMessage_sendsToGenAiQueue() {
+        GenAiMessage message = new GenAiMessage(1L, "Hello World");
+
+        publisher.sendGenAiMessage(message);
+
+        verify(rabbitTemplate).convertAndSend(RabbitMqConfig.GENAI_QUEUE, message);
+    }
+
+    @Test
     void sendOcrMessage_rabbitMqNotReachable_throwsMessagePublishException() {
         OcrMessage message = new OcrMessage(1L, "invoice.pdf", "a.pdf");
         doThrow(new AmqpException("Connection error")).when(rabbitTemplate).convertAndSend(RabbitMqConfig.OCR_QUEUE, message);

@@ -50,6 +50,12 @@ public class DocumentEntity {
     @Column(columnDefinition = "text")
     private String content;
 
+    @Column(columnDefinition = "text")
+    private String summary;
+
+    @Column(columnDefinition = "text")
+    private String summaryError;
+
     @Column(nullable = false, updatable = false)
     private Instant uploadedAt;
 

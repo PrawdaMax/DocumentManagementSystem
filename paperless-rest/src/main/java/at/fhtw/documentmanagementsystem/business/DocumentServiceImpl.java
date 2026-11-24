@@ -6,11 +6,14 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentLockedException;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.GenAiMessage;
 import at.fhtw.documentmanagementsystem.messaging.IndexMessage;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublisher;
 import at.fhtw.documentmanagementsystem.messaging.OcrMessage;
@@ -27,12 +30,14 @@ import org.springframework.transaction.annotation.Transactional;
 
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 import java.util.Set;
 import java.util.UUID;
 
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.ARCHIVED;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.DONE;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.IN_REVIEW;
+import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.PROCESSING;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.RECEIVED;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.REJECTED;
 
@@ -44,10 +49,13 @@ public class DocumentServiceImpl implements DocumentService {
 
     private static final Map<DocumentStatus, Set<DocumentStatus>> ALLOWED_STATUS_CHANGES = Map.of(
             RECEIVED, Set.of(IN_REVIEW, REJECTED),
+            PROCESSING, Set.of(REJECTED),
             IN_REVIEW, Set.of(DONE, REJECTED),
             DONE, Set.of(ARCHIVED),
             REJECTED, Set.of(IN_REVIEW),
             ARCHIVED, Set.of());
+
+    private static final Set<DocumentStatus> DELETABLE_STATUSES = Set.of(RECEIVED, REJECTED);
 
     private final DocumentRepository documentRepository;
     private final DocumentMapper documentMapper;
@@ -89,7 +97,8 @@ public class DocumentServiceImpl implements DocumentService {
         try {
             DocumentEntity document = documentMapper.mapToEntity(uploadDto);
             document.setObjectKey(objectKey);
-            recordStatus(document, RECEIVED, "Document uploaded");
+            recordStatus(document, RECEIVED, "Document uploaded", uploadDto.getChangedBy());
+            recordStatus(document, PROCESSING, "Text recognition and summary started", null);
             DocumentEntity saved = documentRepository.save(document);
             messagePublisher.sendOcrMessage(new OcrMessage(saved.getId(), saved.getFileName(), objectKey));
             log.info("Successfully uploaded document with id: {}", saved.getId());
@@ -105,6 +114,7 @@ public class DocumentServiceImpl implements DocumentService {
     public DocumentDto update(Long id, DocumentUpdateDto updateDto) {
         log.info("Updating document with id: {}", id);
         DocumentEntity document = findDocument(id);
+        ensureNotArchived(document);
         document.setTitle(updateDto.getTitle());
         DocumentEntity saved = documentRepository.save(document);
         if (saved.getContent() != null) {
@@ -117,6 +127,9 @@ public class DocumentServiceImpl implements DocumentService {
     public void delete(Long id) {
         log.info("Deleting document with id: {}", id);
         DocumentEntity document = findDocument(id);
+        if (!DELETABLE_STATUSES.contains(document.getStatus())) {
+            throw new DocumentLockedException("Only received or rejected documents can be deleted");
+        }
         documentRepository.delete(document);
         if (document.getObjectKey() != null) {
             fileStorage.delete(document.getObjectKey());
@@ -133,7 +146,10 @@ public class DocumentServiceImpl implements DocumentService {
             throw new InvalidStatusChangeException(
                     "Status change from " + document.getStatus() + " to " + newStatus + " is not allowed");
         }
-        recordStatus(document, newStatus, statusChangeDto.getComment());
+        if (newStatus == REJECTED && isBlank(statusChangeDto.getComment())) {
+            throw new InvalidStatusChangeException("Please enter a reason to reject the document");
+        }
+        recordStatus(document, newStatus, statusChangeDto.getComment(), statusChangeDto.getChangedBy());
         return documentMapper.mapToDto(documentRepository.save(document));
     }
 
@@ -152,9 +168,61 @@ public class DocumentServiceImpl implements DocumentService {
             return;
         }
         document.setContent(content);
-        recordStatus(document, document.getStatus(), "OCR completed");
+        if (requestSummary(document)) {
+            recordStatus(document, document.getStatus(), "OCR completed", null);
+        } else {
+            recordStatus(document, statusAfterProcessing(document), "OCR completed, no text found", null);
+        }
         documentRepository.save(document);
         sendIndexMessage(document);
+    }
+
+    @Override
+    public void saveSummaryResult(Long id, String summary, String error) {
+        log.info("Saving summary result for document with id: {}", id);
+        DocumentEntity document = documentRepository.findById(id).orElse(null);
+        if (document == null) {
+            log.warn("Document with id {} no longer exists, summary result is ignored", id);
+            return;
+        }
+        if (summary != null) {
+            document.setSummary(summary);
+            document.setSummaryError(null);
+            recordStatus(document, statusAfterProcessing(document), "Summary generated", null);
+        } else {
+            log.warn("Summary for document with id {} failed: {}", id, error);
+            document.setSummaryError(Objects.requireNonNullElse(error, "Summary could not be generated"));
+            recordStatus(document, statusAfterProcessing(document), "Summary failed", null);
+        }
+        documentRepository.save(document);
+    }
+
+    @Override
+    public DocumentDto retrySummary(Long id) {
+        log.info("Restarting summary for document with id: {}", id);
+        DocumentEntity document = findDocument(id);
+        ensureNotArchived(document);
+        if (document.getContent() == null) {
+            throw new DocumentNotReadyException("Text recognition for document " + id + " is not finished yet");
+        }
+        recordStatus(document, document.getStatus(), "Summary restarted", null);
+        requestSummary(document);
+        return documentMapper.mapToDto(documentRepository.save(document));
+    }
+
+    private boolean requestSummary(DocumentEntity document) {
+        document.setSummary(null);
+        if (document.getContent().isBlank()) {
+            document.setSummaryError("No text was found, so there is nothing to summarize");
+            return false;
+        }
+        document.setSummaryError(null);
+        messagePublisher.sendGenAiMessage(new GenAiMessage(document.getId(), document.getContent()));
+        return true;
+    }
+
+    private DocumentStatus statusAfterProcessing(DocumentEntity document) {
+        return document.getStatus() == PROCESSING ? IN_REVIEW : document.getStatus();
     }
 
     private void sendIndexMessage(DocumentEntity document) {
@@ -166,12 +234,23 @@ public class DocumentServiceImpl implements DocumentService {
                 .orElseThrow(() -> new ResourceNotFoundException("Document with id " + id + " not found"));
     }
 
-    private void recordStatus(DocumentEntity document, DocumentStatus status, String comment) {
+    private void ensureNotArchived(DocumentEntity document) {
+        if (document.getStatus() == ARCHIVED) {
+            throw new DocumentLockedException("Archived documents cannot be changed");
+        }
+    }
+
+    private void recordStatus(DocumentEntity document, DocumentStatus status, String comment, String changedBy) {
         document.setStatus(status);
         document.getHistory().add(DocumentHistoryEntity.builder()
                 .document(document)
                 .status(status)
                 .comment(comment)
+                .changedBy(isBlank(changedBy) ? null : changedBy.trim())
                 .build());
+    }
+
+    private static boolean isBlank(String value) {
+        return value == null || value.isBlank();
     }
 }

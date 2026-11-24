@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router';
 import * as api from '../api';
 import { Alert } from '../components/Alert';
@@ -7,7 +7,9 @@ import { StatusBadge } from '../components/StatusBadge';
 import { StatusChange } from '../components/StatusChange';
 import { formatBytes, formatDate } from '../format';
 import { STATUS } from '../status';
+import { summaryState } from '../summary';
 import type { DocumentDto, DocumentHistoryDto, DocumentStatus } from '../types';
+import { useAutoRefresh } from '../useAutoRefresh';
 
 const HEADING_STYLE = 'mb-2 text-xs font-bold text-slate-400 uppercase';
 
@@ -18,27 +20,21 @@ export function DocumentPage() {
     const [history, setHistory] = useState<DocumentHistoryDto[]>([]);
     const [formOpen, setFormOpen] = useState(false);
     const [error, setError] = useState('');
+    const [retrying, setRetrying] = useState(false);
 
     // Dokument und Verlauf laden, sobald sich die ID in der URL ändert
-    useEffect(() => {
+    const loadDocument = useCallback(() => {
         api.getDocument(id).then(setDoc).catch(err => setError(err.message));
         api.getHistory(id).then(setHistory).catch(err => setError(err.message));
     }, [id]);
 
-    // Solange der OCR-Text fehlt, Dokument und Verlauf alle 5 Sekunden neu laden
-    const ocrPending = doc !== null && (doc.content ?? null) === null;
-    useEffect(() => {
-        if (!ocrPending) return;
-        const interval = setInterval(async () => {
-            try {
-                setDoc(await api.getDocument(id));
-                setHistory(await api.getHistory(id));
-            } catch (err) {
-                setError((err as Error).message);
-            }
-        }, 5000);
-        return () => clearInterval(interval);
-    }, [id, ocrPending]);
+    useEffect(loadDocument, [loadDocument]);
+
+    // Alle 10 Sekunden neu laden, solange OCR-Text oder Zusammenfassung fehlen alle 5 Sekunden
+    const summary = doc ? summaryState(doc) : null;
+    const ocrPending = summary === 'waiting-for-ocr';
+    const processing = ocrPending || summary === 'pending';
+    useAutoRefresh(loadDocument, processing ? 5000 : 10000);
 
     async function updateDocumentTitle(title: string) {
         setDoc(await api.updateDocument(id, { title }));
@@ -52,6 +48,19 @@ export function DocumentPage() {
             navigate('/');
         } catch (err) {
             setError((err as Error).message);
+        }
+    }
+
+    async function retrySummary() {
+        setRetrying(true);
+        try {
+            setDoc(await api.retrySummary(id));
+            setHistory(await api.getHistory(id));
+            setError('');
+        } catch (err) {
+            setError((err as Error).message);
+        } finally {
+            setRetrying(false);
         }
     }
 
@@ -77,7 +86,7 @@ export function DocumentPage() {
                             <h2 className="text-lg font-bold">{doc.title}</h2>
                             <p className="text-xs text-slate-400">Uploaded at {formatDate(doc.uploadedAt)}</p>
                         </div>
-                        <div className="space-x-2 text-sm">
+                        <div className="space-x-2 text-right text-sm">
                             <a
                                 href={api.documentFileUrl(id)}
                                 target="_blank"
@@ -86,8 +95,15 @@ export function DocumentPage() {
                             >
                                 Open PDF
                             </a>
-                            <button onClick={() => setFormOpen(true)} className="rounded-md border border-slate-300 px-3 py-1.5 font-semibold">Edit</button>
-                            <button onClick={deleteDocument} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white">Delete</button>
+                            {STATUS[doc.status].canEdit && (
+                                <button onClick={() => setFormOpen(true)} className="rounded-md border border-slate-300 px-3 py-1.5 font-semibold">Edit</button>
+                            )}
+                            {STATUS[doc.status].canDelete && (
+                                <button onClick={deleteDocument} className="rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white">Delete</button>
+                            )}
+                            {lockHint(doc.status) && (
+                                <p className="mt-2 text-xs text-slate-400 italic">{lockHint(doc.status)}</p>
+                            )}
                         </div>
                     </div>
 
@@ -97,6 +113,35 @@ export function DocumentPage() {
                         <p><b>Size:</b> {formatBytes(doc.fileSize)}</p>
                         <p><b>Status:</b> <StatusBadge status={doc.status} /></p>
                     </div>
+
+                    {summary !== 'unavailable' && (
+                        <section>
+                            <h3 className={HEADING_STYLE}>Summary</h3>
+                            {summary === 'waiting-for-ocr' && (
+                                <p className="text-sm text-slate-500 italic">The summary is created after text recognition.</p>
+                            )}
+                            {summary === 'pending' && (
+                                <p className="text-sm text-slate-500 italic">Summary is being generated…</p>
+                            )}
+                            {summary === 'done' && (
+                                <p className="rounded-md bg-indigo-50 p-3 text-sm whitespace-pre-wrap">{doc.summary}</p>
+                            )}
+                            {summary === 'failed' && (
+                                <div className="flex items-start justify-between gap-4 rounded-md bg-rose-50 p-3 text-sm text-rose-800">
+                                    <p>Summary could not be generated: {doc.summaryError}</p>
+                                    {STATUS[doc.status].canEdit && (
+                                        <button
+                                            onClick={retrySummary}
+                                            disabled={retrying}
+                                            className="shrink-0 rounded-md bg-rose-600 px-3 py-1.5 font-semibold text-white disabled:opacity-50"
+                                        >
+                                            Retry summary
+                                        </button>
+                                    )}
+                                </div>
+                            )}
+                        </section>
+                    )}
 
                     <section>
                         <h3 className={HEADING_STYLE}>Extracted Text</h3>
@@ -124,7 +169,10 @@ export function DocumentPage() {
                             {history.map(entry => (
                                 <li key={entry.id} className="border-l-2 border-indigo-200 pl-3">
                                     <div className="flex justify-between">
-                                        <b>{STATUS[entry.status].label}</b>
+                                        <span>
+                                            <b>{STATUS[entry.status].label}</b>
+                                            {entry.changedBy && <span className="text-slate-500"> by {entry.changedBy}</span>}
+                                        </span>
                                         <span className="text-slate-400">{formatDate(entry.changedAt)}</span>
                                     </div>
                                     {entry.comment && <p className="text-slate-600 italic">{entry.comment}</p>}
@@ -138,4 +186,11 @@ export function DocumentPage() {
             {doc && formOpen && <DocumentForm doc={doc} onSaveTitle={updateDocumentTitle} onCancel={() => setFormOpen(false)} />}
         </div>
     );
+}
+
+function lockHint(status: DocumentStatus) {
+    if (!STATUS[status].canEdit) return 'Archived documents are read-only.';
+    if (status === 'PROCESSING') return 'Text recognition and summary are running, then the status changes to In Review.';
+    if (!STATUS[status].canDelete) return 'Only received or rejected documents can be deleted.';
+    return null;
 }

@@ -24,6 +24,7 @@ class DocumentHistoryMapperTest {
                 .status(IN_REVIEW)
                 .changedAt(changedAt)
                 .comment("Checked")
+                .changedBy("Anna")
                 .build();
 
         DocumentHistoryDto dto = documentHistoryMapper.mapToDto(entity);
@@ -32,6 +33,7 @@ class DocumentHistoryMapperTest {
         assertThat(dto.getStatus()).isEqualTo(IN_REVIEW);
         assertThat(dto.getChangedAt()).isEqualTo(changedAt);
         assertThat(dto.getComment()).isEqualTo("Checked");
+        assertThat(dto.getChangedBy()).isEqualTo("Anna");
     }
 
     @Test

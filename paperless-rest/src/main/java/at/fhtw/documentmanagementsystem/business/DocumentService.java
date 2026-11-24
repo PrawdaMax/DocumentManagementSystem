@@ -28,4 +28,8 @@ public interface DocumentService {
     List<DocumentHistoryDto> getHistory(Long id);
 
     void saveOcrResult(Long id, String content);
+
+    void saveSummaryResult(Long id, String summary, String error);
+
+    DocumentDto retrySummary(Long id);
 }

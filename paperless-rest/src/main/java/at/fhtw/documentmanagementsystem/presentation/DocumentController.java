@@ -69,12 +69,14 @@ public class DocumentController {
     @PostMapping(consumes = MediaType.MULTIPART_FORM_DATA_VALUE)
     public ResponseEntity<DocumentDto> upload(
             @RequestParam("file") MultipartFile file,
-            @RequestParam(value = "title", required = false) String title) throws IOException {
+            @RequestParam(value = "title", required = false) String title,
+            @RequestParam(value = "changedBy", required = false) String changedBy) throws IOException {
 
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title(title)
                 .fileName(file.getOriginalFilename())
                 .fileContent(file.getBytes())
+                .changedBy(changedBy)
                 .build();
 
         DocumentDto created = documentService.upload(uploadDto);
@@ -100,5 +102,11 @@ public class DocumentController {
     @GetMapping("/{id}/history")
     public List<DocumentHistoryDto> getHistory(@PathVariable Long id) {
         return documentService.getHistory(id);
+    }
+
+    @PostMapping("/{id}/summary")
+    @ResponseStatus(HttpStatus.ACCEPTED)
+    public DocumentDto retrySummary(@PathVariable Long id) {
+        return documentService.retrySummary(id);
     }
 }

@@ -6,12 +6,15 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentHistoryDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentLockedException;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
 import at.fhtw.documentmanagementsystem.business.exception.ResourceNotFoundException;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentHistoryMapper;
 import at.fhtw.documentmanagementsystem.business.mapper.DocumentMapper;
 import at.fhtw.documentmanagementsystem.business.validation.DocumentUploadValidator;
+import at.fhtw.documentmanagementsystem.messaging.GenAiMessage;
 import at.fhtw.documentmanagementsystem.messaging.IndexMessage;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublishException;
 import at.fhtw.documentmanagementsystem.messaging.MessagePublisher;
@@ -37,9 +40,12 @@ import java.util.ArrayList;
 import java.util.List;
 import java.util.Optional;
 
+import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.ARCHIVED;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.DONE;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.IN_REVIEW;
+import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.PROCESSING;
 import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.RECEIVED;
+import static at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus.REJECTED;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.any;
@@ -169,11 +175,12 @@ class DocumentServiceImplTest {
     }
 
     @Test
-    void upload_validPdf_savesNewDocumentWithStatusReceived() {
+    void upload_validPdf_savesNewDocumentAndStartsProcessing() {
         DocumentUploadDto uploadDto = DocumentUploadDto.builder()
                 .title("Invoice")
                 .fileName("invoice.pdf")
                 .fileContent("%PDF-1.4 content".getBytes(StandardCharsets.UTF_8))
+                .changedBy(" Anna ")
                 .build();
 
         when(documentRepository.save(any(DocumentEntity.class))).thenAnswer(invocation -> {
@@ -191,8 +198,9 @@ class DocumentServiceImplTest {
         assertThat(saved.getTitle()).isEqualTo("Invoice");
         assertThat(saved.getFileName()).isEqualTo("invoice.pdf");
         assertThat(saved.getContentType()).isEqualTo("application/pdf");
-        assertThat(saved.getStatus()).isEqualTo(RECEIVED);
-        assertThat(saved.getHistory()).extracting(DocumentHistoryEntity::getStatus).containsExactly(RECEIVED);
+        assertThat(saved.getStatus()).isEqualTo(PROCESSING);
+        assertThat(saved.getHistory()).extracting(DocumentHistoryEntity::getStatus).containsExactly(RECEIVED, PROCESSING);
+        assertThat(saved.getHistory()).extracting(DocumentHistoryEntity::getChangedBy).containsExactly("Anna", null);
         assertThat(result.getId()).isEqualTo(1L);
 
         ArgumentCaptor<String> objectKey = ArgumentCaptor.forClass(String.class);
@@ -231,6 +239,18 @@ class DocumentServiceImplTest {
     }
 
     @Test
+    void update_archivedDocument_throwsDocumentLockedException() {
+        DocumentEntity existing = document(1L, "Old title");
+        existing.setStatus(ARCHIVED);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> documentService.update(1L, DocumentUpdateDto.builder().title("New title").build()))
+                .isInstanceOf(DocumentLockedException.class);
+        assertThat(existing.getTitle()).isEqualTo("Old title");
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
     void update_documentWithText_sendsIndexMessageWithNewTitle() {
         DocumentEntity existing = document(1L, "Old title");
         existing.setContent("Hello World");
@@ -243,17 +263,32 @@ class DocumentServiceImplTest {
     }
 
     @Test
-    void saveOcrResult_existingDocument_savesTextAddsHistoryAndSendsIndexMessage() {
+    void saveOcrResult_processingDocument_savesTextKeepsProcessingAndSendsMessages() {
         DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(PROCESSING);
         when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
 
         documentService.saveOcrResult(1L, "Hello World");
 
         verify(documentRepository).save(existing);
         assertThat(existing.getContent()).isEqualTo("Hello World");
-        assertThat(existing.getStatus()).isEqualTo(RECEIVED);
+        assertThat(existing.getStatus()).isEqualTo(PROCESSING);
         assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("OCR completed");
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getChangedBy).containsOnlyNulls();
         verify(messagePublisher).sendIndexMessage(new IndexMessage(1L, "Invoice", "Hello World"));
+        verify(messagePublisher).sendGenAiMessage(new GenAiMessage(1L, "Hello World"));
+    }
+
+    @Test
+    void saveOcrResult_rejectedDocument_keepsStatus() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(REJECTED);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveOcrResult(1L, "Hello World");
+
+        assertThat(existing.getStatus()).isEqualTo(REJECTED);
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("OCR completed");
     }
 
     @Test
@@ -261,6 +296,112 @@ class DocumentServiceImplTest {
         when(documentRepository.findById(99L)).thenReturn(Optional.empty());
 
         documentService.saveOcrResult(99L, "Hello World");
+
+        verify(documentRepository, never()).save(any());
+        verifyNoInteractions(messagePublisher);
+    }
+
+    @Test
+    void saveOcrResult_noText_storesSummaryErrorAndMovesToInReview() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(PROCESSING);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveOcrResult(1L, "  ");
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummaryError()).isEqualTo("No text was found, so there is nothing to summarize");
+        assertThat(existing.getStatus()).isEqualTo(IN_REVIEW);
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment)
+                .containsExactly("OCR completed, no text found");
+        verify(messagePublisher, never()).sendGenAiMessage(any());
+    }
+
+    @Test
+    void saveSummaryResult_summary_storesSummaryAndMovesToInReview() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(PROCESSING);
+        existing.setSummaryError("Gemini error 429: Quota exceeded");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveSummaryResult(1L, "A short summary.", null);
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummary()).isEqualTo("A short summary.");
+        assertThat(existing.getSummaryError()).isNull();
+        assertThat(existing.getStatus()).isEqualTo(IN_REVIEW);
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary generated");
+    }
+
+    @Test
+    void saveSummaryResult_error_storesErrorAndMovesToInReview() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(PROCESSING);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveSummaryResult(1L, null, "Gemini error 429: Quota exceeded");
+
+        verify(documentRepository).save(existing);
+        assertThat(existing.getSummary()).isNull();
+        assertThat(existing.getSummaryError()).isEqualTo("Gemini error 429: Quota exceeded");
+        assertThat(existing.getStatus()).isEqualTo(IN_REVIEW);
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary failed");
+    }
+
+    @Test
+    void saveSummaryResult_doneDocument_keepsStatus() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(DONE);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        documentService.saveSummaryResult(1L, "A short summary.", null);
+
+        assertThat(existing.getStatus()).isEqualTo(DONE);
+    }
+
+    @Test
+    void saveSummaryResult_deletedDocument_savesNothing() {
+        when(documentRepository.findById(99L)).thenReturn(Optional.empty());
+
+        documentService.saveSummaryResult(99L, "A short summary.", null);
+
+        verify(documentRepository, never()).save(any());
+    }
+
+    @Test
+    void retrySummary_withText_resetsSummaryAndSendsGenAiMessage() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setContent("Hello World");
+        existing.setSummaryError("Gemini error 429: Quota exceeded");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(documentRepository.save(existing)).thenReturn(existing);
+
+        DocumentDto result = documentService.retrySummary(1L);
+
+        assertThat(result.getSummary()).isNull();
+        assertThat(result.getSummaryError()).isNull();
+        assertThat(existing.getHistory()).extracting(DocumentHistoryEntity::getComment).containsExactly("Summary restarted");
+        verify(messagePublisher).sendGenAiMessage(new GenAiMessage(1L, "Hello World"));
+    }
+
+    @Test
+    void retrySummary_archivedDocument_throwsDocumentLockedException() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setContent("Hello World");
+        existing.setStatus(ARCHIVED);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> documentService.retrySummary(1L))
+                .isInstanceOf(DocumentLockedException.class);
+        verifyNoInteractions(messagePublisher);
+    }
+
+    @Test
+    void retrySummary_ocrNotFinished_throwsDocumentNotReadyException() {
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(document(1L, "Invoice")));
+
+        assertThatThrownBy(() -> documentService.retrySummary(1L))
+                .isInstanceOf(DocumentNotReadyException.class);
 
         verify(documentRepository, never()).save(any());
         verifyNoInteractions(messagePublisher);
@@ -277,6 +418,20 @@ class DocumentServiceImplTest {
         verify(documentRepository).delete(existing);
         verify(fileStorage).delete("a.pdf");
         verify(searchIndex).delete(1L);
+    }
+
+    @Test
+    void delete_documentInReview_throwsDocumentLockedException() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(IN_REVIEW);
+        existing.setObjectKey("a.pdf");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> documentService.delete(1L))
+                .isInstanceOf(DocumentLockedException.class)
+                .hasMessage("Only received or rejected documents can be deleted");
+        verify(documentRepository, never()).delete(any());
+        verifyNoInteractions(fileStorage, searchIndex);
     }
 
     @Test
@@ -297,12 +452,41 @@ class DocumentServiceImplTest {
         when(documentRepository.save(existing)).thenReturn(existing);
 
         DocumentDto result = documentService.changeStatus(1L,
-                StatusChangeDto.builder().status(IN_REVIEW).comment("Review started").build());
+                StatusChangeDto.builder().status(IN_REVIEW).comment("Review started").changedBy("Anna").build());
 
         assertThat(result.getStatus()).isEqualTo(IN_REVIEW);
         assertThat(existing.getHistory()).hasSize(1);
         assertThat(existing.getHistory().getFirst().getStatus()).isEqualTo(IN_REVIEW);
         assertThat(existing.getHistory().getFirst().getComment()).isEqualTo("Review started");
+        assertThat(existing.getHistory().getFirst().getChangedBy()).isEqualTo("Anna");
+    }
+
+    @Test
+    void changeStatus_processingDocument_canOnlyBeRejected() {
+        DocumentEntity existing = document(1L, "Invoice");
+        existing.setStatus(PROCESSING);
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+        when(documentRepository.save(existing)).thenReturn(existing);
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L, StatusChangeDto.builder().status(IN_REVIEW).build()))
+                .isInstanceOf(InvalidStatusChangeException.class);
+        DocumentDto result = documentService.changeStatus(1L,
+                StatusChangeDto.builder().status(REJECTED).comment("OCR is stuck").build());
+
+        assertThat(result.getStatus()).isEqualTo(REJECTED);
+    }
+
+    @Test
+    void changeStatus_rejectWithoutComment_throwsInvalidStatusChangeException() {
+        DocumentEntity existing = document(1L, "Invoice");
+        when(documentRepository.findById(1L)).thenReturn(Optional.of(existing));
+
+        assertThatThrownBy(() -> documentService.changeStatus(1L,
+                StatusChangeDto.builder().status(REJECTED).comment(" ").build()))
+                .isInstanceOf(InvalidStatusChangeException.class)
+                .hasMessage("Please enter a reason to reject the document");
+        assertThat(existing.getStatus()).isEqualTo(RECEIVED);
+        assertThat(existing.getHistory()).isEmpty();
     }
 
     @Test

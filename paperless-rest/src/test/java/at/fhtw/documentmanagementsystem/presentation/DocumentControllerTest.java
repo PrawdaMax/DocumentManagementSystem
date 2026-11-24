@@ -7,6 +7,8 @@ import at.fhtw.documentmanagementsystem.business.dto.DocumentFileDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUpdateDto;
 import at.fhtw.documentmanagementsystem.business.dto.DocumentUploadDto;
 import at.fhtw.documentmanagementsystem.business.dto.StatusChangeDto;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentLockedException;
+import at.fhtw.documentmanagementsystem.business.exception.DocumentNotReadyException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidDocumentException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidSearchQueryException;
 import at.fhtw.documentmanagementsystem.business.exception.InvalidStatusChangeException;
@@ -16,6 +18,7 @@ import at.fhtw.documentmanagementsystem.persistence.entity.DocumentStatus;
 import at.fhtw.documentmanagementsystem.search.SearchException;
 import at.fhtw.documentmanagementsystem.storage.StorageException;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.webmvc.test.autoconfigure.WebMvcTest;
 import org.springframework.context.annotation.Import;
@@ -30,15 +33,18 @@ import java.net.UnknownHostException;
 import java.nio.charset.StandardCharsets;
 import java.util.List;
 
+import static org.assertj.core.api.Assertions.assertThat;
 import static org.hamcrest.Matchers.containsString;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.delete;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.get;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.multipart;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.patch;
+import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.post;
 import static org.springframework.test.web.servlet.request.MockMvcRequestBuilders.put;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.content;
 import static org.springframework.test.web.servlet.result.MockMvcResultMatchers.header;
@@ -173,10 +179,15 @@ class DocumentControllerTest {
 
         mockMvc.perform(multipart("/api/documents")
                         .file(file)
-                        .param("title", "Invoice"))
+                        .param("title", "Invoice")
+                        .param("changedBy", "Anna"))
                 .andExpect(status().isCreated())
                 .andExpect(header().string("Location", "/api/documents/1"))
                 .andExpect(jsonPath("$.id").value(1));
+
+        ArgumentCaptor<DocumentUploadDto> uploadDto = ArgumentCaptor.forClass(DocumentUploadDto.class);
+        verify(documentService).upload(uploadDto.capture());
+        assertThat(uploadDto.getValue().getChangedBy()).isEqualTo("Anna");
     }
 
     @Test
@@ -244,6 +255,16 @@ class DocumentControllerTest {
     }
 
     @Test
+    void delete_documentInReview_returns409() throws Exception {
+        doThrow(new DocumentLockedException("Only received or rejected documents can be deleted"))
+                .when(documentService).delete(1L);
+
+        mockMvc.perform(delete("/api/documents/1"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Only received or rejected documents can be deleted"));
+    }
+
+    @Test
     void changeStatus_allowedChange_returnsDocumentWithNewStatus() throws Exception {
         DocumentDto updated = DocumentDto.builder().id(1L).title("Invoice").status(DocumentStatus.IN_REVIEW).build();
         when(documentService.changeStatus(eq(1L), any(StatusChangeDto.class))).thenReturn(updated);
@@ -269,6 +290,26 @@ class DocumentControllerTest {
                                 """))
                 .andExpect(status().isConflict())
                 .andExpect(jsonPath("$.detail").value("Status change from RECEIVED to DONE is not allowed"));
+    }
+
+    @Test
+    void retrySummary_returns202WithDocument() throws Exception {
+        when(documentService.retrySummary(1L)).thenReturn(document(1L, "Invoice"));
+
+        mockMvc.perform(post("/api/documents/1/summary"))
+                .andExpect(status().isAccepted())
+                .andExpect(jsonPath("$.id").value(1))
+                .andExpect(jsonPath("$.summary").doesNotExist());
+    }
+
+    @Test
+    void retrySummary_ocrNotFinished_returns409() throws Exception {
+        when(documentService.retrySummary(1L))
+                .thenThrow(new DocumentNotReadyException("Text recognition for document 1 is not finished yet"));
+
+        mockMvc.perform(post("/api/documents/1/summary"))
+                .andExpect(status().isConflict())
+                .andExpect(jsonPath("$.detail").value("Text recognition for document 1 is not finished yet"));
     }
 
     @Test

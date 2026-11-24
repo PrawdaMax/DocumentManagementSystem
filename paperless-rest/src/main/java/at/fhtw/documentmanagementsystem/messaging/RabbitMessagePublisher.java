@@ -23,6 +23,11 @@ public class RabbitMessagePublisher implements MessagePublisher {
         send(RabbitMqConfig.INDEX_QUEUE, message.documentId(), message);
     }
 
+    @Override
+    public void sendGenAiMessage(GenAiMessage message) {
+        send(RabbitMqConfig.GENAI_QUEUE, message.documentId(), message);
+    }
+
     private void send(String queue, Long documentId, Object message) {
         log.info("Sending message for document id: {} to queue: {}", documentId, queue);
         try {
